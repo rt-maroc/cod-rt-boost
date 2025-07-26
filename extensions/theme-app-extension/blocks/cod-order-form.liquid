@@ -1,0 +1,326 @@
+{% comment %}
+  Formulaire COD intégré directement dans la section produit
+  Fichier: extensions/theme-app-extension/blocks/cod-product-form.liquid
+{% endcomment %}
+
+{{ 'cod-form.css' | asset_url | stylesheet_tag }}
+
+{% comment %} Hide Shopify buttons if enabled {% endcomment %}
+{% if block.settings.hide_add_to_cart %}
+  <style>
+    .product-form__buttons .btn.product-form__cart-submit,
+    .product-form__buttons [name="add"],
+    .product-form__buttons .shopify-payment-button,
+    .product-form__buttons .dynamic-checkout__content,
+    .product-form .btn,
+    .product-form button[type="submit"],
+    form[action="/cart/add"] .btn {
+      display: none !important;
+    }
+  </style>
+{% endif %}
+
+{% comment %} Style pour intégration dans le produit {% endcomment %}
+<style>
+  .cod-product-form {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 16px 0;
+  }
+  
+  .cod-product-form .cod-form-header {
+    border-bottom: 1px solid #e5e5e5;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+  }
+  
+  .cod-product-form .cod-form-header h3 {
+    font-size: 18px;
+    margin-bottom: 4px;
+  }
+  
+  .cod-product-form .cod-form-subtitle {
+    background: #f0f9ff;
+    border: 1px solid #0ea5e9;
+    color: #0369a1;
+    font-size: 13px;
+  }
+  
+  .cod-product-form .cod-submit-btn {
+    width: 100%;
+    font-size: 16px;
+    padding: 14px 24px;
+    margin-top: 12px;
+  }
+</style>
+
+<div class="cod-form-container cod-product-form" data-product-id="{{ product.id }}">
+  
+  {% comment %} Header simplifié pour intégration produit {% endcomment %}
+  <div class="cod-form-header">
+    <h3>
+      {% if block.settings.custom_title != blank %}
+        {{ block.settings.custom_title }}
+      {% else %}
+        🚚 {{ 'cod_form.title' | t }}
+      {% endif %}
+    </h3>
+    <p class="cod-form-subtitle">
+      {% if block.settings.custom_subtitle != blank %}
+        {{ block.settings.custom_subtitle }}
+      {% else %}
+        {{ 'cod_form.subtitle' | t }}
+      {% endif %}
+    </p>
+  </div>
+
+  <form class="cod-order-form" id="cod-form-{{ product.id }}">
+    
+    {% comment %} Informations produit cachées {% endcomment %}
+    <input type="hidden" name="product_id" value="{{ product.id }}">
+    <input type="hidden" name="variant_id" value="{{ product.selected_or_first_available_variant.id }}">
+    <input type="hidden" name="product_title" value="{{ product.title }}">
+    <input type="hidden" name="product_price" value="{{ product.selected_or_first_available_variant.price }}">
+    <input type="hidden" name="product_image" value="{{ product.featured_image | image_url: width: 300 }}">
+
+    {% comment %} Prix et quantité compacts {% endcomment %}
+    <div class="cod-price-quantity" style="display: flex; gap: 16px; margin-bottom: 16px; align-items: center;">
+      
+      {% comment %} Prix du produit {% endcomment %}
+      <div class="cod-price-display" style="flex: 1;">
+        <div style="font-size: 24px; font-weight: 700; color: #059669;" id="cod-display-price">
+          {{ product.selected_or_first_available_variant.price | money }}
+        </div>
+        <div style="font-size: 12px; color: #6b7280;">{{ 'cod_form.delivery_included' | t: delivery: block.settings.delivery_fee }}</div>
+      </div>
+
+      {% comment %} Quantité compacte {% endcomment %}
+      {% if block.settings.show_quantity %}
+        <div class="cod-quantity-compact" style="display: flex; align-items: center; gap: 8px;">
+          <label style="font-size: 14px; color: #374151;">{{ 'cod_form.quantity' | t }}:</label>
+          <div class="cod-quantity-controls" style="scale: 0.9;">
+            <button type="button" class="cod-qty-btn cod-qty-minus">-</button>
+            <input type="number" id="quantity-{{ product.id }}" name="quantity" value="1" min="1" max="{{ block.settings.max_quantity | default: 10 }}">
+            <button type="button" class="cod-qty-btn cod-qty-plus">+</button>
+          </div>
+        </div>
+      {% else %}
+        <input type="hidden" name="quantity" value="1">
+      {% endif %}
+    </div>
+
+    {% comment %} Variantes si nécessaire {% endcomment %}
+    {% if product.variants.size > 1 and block.settings.show_variants %}
+      <div class="cod-field-group" style="margin-bottom: 16px;">
+        <label for="variant-select-{{ product.id }}" style="font-size: 14px; margin-bottom: 6px;">{{ 'cod_form.variant' | t }}</label>
+        <select id="variant-select-{{ product.id }}" name="variant_id" style="width: 100%; padding: 10px;">
+          {% for variant in product.variants %}
+            {% if variant.available %}
+              <option value="{{ variant.id }}" data-price="{{ variant.price }}">
+                {{ variant.title }} - {{ variant.price | money }}
+              </option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+    {% endif %}
+
+    {% comment %} Informations client compactes {% endcomment %}
+    <div class="cod-customer-compact" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+      <div class="cod-field-group">
+        <label for="customer-name-{{ product.id }}" style="font-size: 13px;">{{ 'cod_form.full_name' | t }} *</label>
+        <input type="text" id="customer-name-{{ product.id }}" name="customer_name" required style="padding: 10px; font-size: 14px;">
+      </div>
+      <div class="cod-field-group">
+        <label for="customer-phone-{{ product.id }}" style="font-size: 13px;">{{ 'cod_form.phone' | t }} *</label>
+        <input type="tel" id="customer-phone-{{ product.id }}" name="customer_phone" required style="padding: 10px; font-size: 14px;">
+      </div>
+    </div>
+
+    {% comment %} Adresse en une ligne {% endcomment %}
+    <div class="cod-field-group" style="margin-bottom: 16px;">
+      <label for="delivery-address-{{ product.id }}" style="font-size: 13px;">{{ 'cod_form.delivery_address' | t }} *</label>
+      <input type="text" id="delivery-address-{{ product.id }}" name="delivery_address" 
+             placeholder="{{ 'cod_form.address_placeholder' | t }}" required 
+             style="padding: 10px; font-size: 14px; width: 100%;">
+    </div>
+
+    {% comment %} Ville et code postal compacts {% endcomment %}
+    <div class="cod-location-compact" style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 16px;">
+      <div class="cod-field-group">
+        <label for="delivery-city-{{ product.id }}" style="font-size: 13px;">{{ 'cod_form.city' | t }} *</label>
+        <input type="text" id="delivery-city-{{ product.id }}" name="delivery_city" required style="padding: 10px; font-size: 14px;">
+      </div>
+      {% if block.settings.show_postal_code %}
+        <div class="cod-field-group">
+          <label for="delivery-postal-{{ product.id }}" style="font-size: 13px;">{{ 'cod_form.postal_code' | t }}</label>
+          <input type="text" id="delivery-postal-{{ product.id }}" name="delivery_postal_code" style="padding: 10px; font-size: 14px;">
+        </div>
+      {% endif %}
+    </div>
+
+    {% comment %} Email optionnel {% endcomment %}
+    {% if block.settings.show_email %}
+      <div class="cod-field-group" style="margin-bottom: 16px;">
+        <label for="customer-email-{{ product.id }}" style="font-size: 13px;">
+          {{ 'cod_form.email' | t }} {% unless block.settings.require_email %}({{ 'cod_form.optional' | t }}){% endunless %}
+        </label>
+        <input type="email" id="customer-email-{{ product.id }}" name="customer_email" 
+               {% if block.settings.require_email %}required{% endif %} 
+               style="padding: 10px; font-size: 14px; width: 100%;">
+      </div>
+    {% endif %}
+
+    {% comment %} Messages {% endcomment %}
+    <div class="cod-messages" style="margin-bottom: 16px;">
+      <div class="cod-error-message" id="cod-error-{{ product.id }}" style="display: none;"></div>
+      <div class="cod-success-message" id="cod-success-{{ product.id }}" style="display: none;"></div>
+    </div>
+
+    {% comment %} Bouton principal COD {% endcomment %}
+    <button type="submit" class="cod-submit-btn" id="cod-submit-{{ product.id }}" 
+            style="background: {{ block.settings.button_color | default: '#059669' }}; border-radius: 8px;">
+      <span class="cod-btn-text">
+        {% if block.settings.button_text != blank %}
+          {{ block.settings.button_text }}
+        {% else %}
+          🚚 {{ 'cod_form.place_order' | t }}
+        {% endif %}
+      </span>
+      <span class="cod-btn-loading" style="display: none;">{{ 'cod_form.processing' | t }}</span>
+    </button>
+
+    {% comment %} Info paiement compacte {% endcomment %}
+    {% if block.settings.show_payment_info %}
+      <div class="cod-payment-info" style="text-align: center; margin-top: 12px;">
+        <p style="font-size: 12px; color: #6b7280; margin: 0; background: #f9fafb; padding: 8px; border-radius: 4px;">
+          {% if block.settings.payment_info_text != blank %}
+            {{ block.settings.payment_info_text }}
+          {% else %}
+            💰 {{ 'cod_form.payment_info' | t }}
+          {% endif %}
+        </p>
+      </div>
+    {% endif %}
+
+  </form>
+</div>
+
+<script src="{{ 'cod-form.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "COD Order Form",
+  "target": "section",
+  "templates": ["product"],
+  "settings": [
+    {
+      "type": "header",
+      "content": "Integration Settings"
+    },
+    {
+      "type": "checkbox",
+      "id": "hide_add_to_cart",
+      "label": "Replace Shopify Add to Cart",
+      "default": true,
+      "info": "Hides the default add to cart button and replaces it with COD form"
+    },
+    {
+      "type": "header",
+      "content": "Form Content"
+    },
+    {
+      "type": "text",
+      "id": "custom_title",
+      "label": "Form Title",
+      "default": "Commander avec livraison"
+    },
+    {
+      "type": "text",
+      "id": "custom_subtitle",
+      "label": "Form Subtitle",
+      "default": "Paiement à la livraison - Livraison gratuite"
+    },
+    {
+      "type": "text",
+      "id": "button_text",
+      "label": "Button Text",
+      "default": "Confirmer ma commande"
+    },
+    {
+      "type": "color",
+      "id": "button_color",
+      "label": "Button Color",
+      "default": "#059669"
+    },
+    {
+      "type": "header",
+      "content": "Form Fields"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_variants",
+      "label": "Show Product Variants",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "show_quantity",
+      "label": "Show Quantity Selector",
+      "default": true
+    },
+    {
+      "type": "range",
+      "id": "max_quantity",
+      "min": 1,
+      "max": 50,
+      "step": 1,
+      "label": "Maximum Quantity",
+      "default": 10
+    },
+    {
+      "type": "checkbox",
+      "id": "show_email",
+      "label": "Show Email Field",
+      "default": false
+    },
+    {
+      "type": "checkbox",
+      "id": "require_email",
+      "label": "Require Email",
+      "default": false
+    },
+    {
+      "type": "checkbox",
+      "id": "show_postal_code",
+      "label": "Show Postal Code",
+      "default": true
+    },
+    {
+      "type": "header",
+      "content": "Delivery Information"
+    },
+    {
+      "type": "text",
+      "id": "delivery_fee",
+      "label": "Delivery Fee Display",
+      "default": "livraison gratuite",
+      "info": "Text shown under the price"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_payment_info",
+      "label": "Show Payment Information",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "payment_info_text",
+      "label": "Payment Info Text",
+      "default": "Vous payez uniquement à la réception"
+    }
+  ]
+}
+{% endschema %}

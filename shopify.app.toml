@@ -1,0 +1,24 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "192e9c0790df6f5d66e8d1f56eb91cf8"
+name = "RT COD BOOST"
+handle = "rt-cod-boost-1"
+application_url = "https://greatly-hamburg-frame-circus.trycloudflare.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "rt-solutions-test.myshopify.com"
+
+[webhooks]
+api_version = "2025-07"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_customers,read_orders,read_products,write_draft_orders,write_orders,write_products"
+
+[auth]
+redirect_urls = ["https://greatly-hamburg-frame-circus.trycloudflare.com/auth/callback", "https://greatly-hamburg-frame-circus.trycloudflare.com/auth/shopify/callback", "https://greatly-hamburg-frame-circus.trycloudflare.com/api/auth/callback"]
+
+[pos]
+embedded = false
