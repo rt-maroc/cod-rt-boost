@@ -1,107 +1,96 @@
-// web/services/DatabaseService.js
-import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import { mkdirSync } from 'fs';
+// web/services/DatabaseService.js - Version PostgreSQL pour Render
+import pkg from 'pg';
+const { Pool } = pkg;
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// Créer le dossier database s'il n'existe pas
-const dbDir = join(__dirname, '..', 'database');
-try {
-  mkdirSync(dbDir, { recursive: true });
-} catch (error) {
-  // Le dossier existe déjà
-}
-
-// Créer ou connecter à la base de données
-const dbPath = join(dbDir, 'cod_orders.db');
-export const database = new Database(dbPath);
-
-// Configuration de la base de données
-database.pragma('journal_mode = WAL');
-database.pragma('synchronous = NORMAL');
-database.pragma('cache_size = 1000');
-database.pragma('temp_store = memory');
+// Configuration de la base de données PostgreSQL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
 // 🗃️ CRÉATION DES TABLES
-export function initializeDatabase() {
+export async function initializeDatabase() {
   try {
+    console.log('📊 Connexion à PostgreSQL...');
+    
+    // Test de connexion
+    const client = await pool.connect();
+    console.log('✅ Connexion PostgreSQL réussie');
+    
     // Table principale des commandes COD
     const createCODOrdersTable = `
       CREATE TABLE IF NOT EXISTS cod_orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        shop_domain TEXT NOT NULL,
-        shopify_order_id TEXT UNIQUE,
-        order_number TEXT,
+        id SERIAL PRIMARY KEY,
+        shop_domain VARCHAR(255) NOT NULL,
+        shopify_order_id VARCHAR(255) UNIQUE,
+        order_number VARCHAR(255),
         
         -- Informations produit
-        product_id TEXT,
-        variant_id TEXT,
+        product_id VARCHAR(255),
+        variant_id VARCHAR(255),
         product_title TEXT,
         product_image TEXT,
         quantity INTEGER DEFAULT 1,
-        unit_price REAL DEFAULT 0,
-        total REAL DEFAULT 0,
-        delivery_fee REAL DEFAULT 0,
+        unit_price DECIMAL(10,2) DEFAULT 0,
+        total DECIMAL(10,2) DEFAULT 0,
+        delivery_fee DECIMAL(10,2) DEFAULT 0,
         
         -- Informations client
-        customer_name TEXT NOT NULL,
-        customer_phone TEXT NOT NULL,
-        customer_email TEXT,
+        customer_name VARCHAR(255) NOT NULL,
+        customer_phone VARCHAR(50) NOT NULL,
+        customer_email VARCHAR(255),
         
         -- Adresse de livraison
         delivery_address TEXT NOT NULL,
-        delivery_city TEXT NOT NULL,
-        delivery_postal_code TEXT,
+        delivery_city VARCHAR(255) NOT NULL,
+        delivery_postal_code VARCHAR(20),
         
         -- Notes et statut
         order_notes TEXT,
-        status TEXT DEFAULT 'pending',
+        status VARCHAR(50) DEFAULT 'pending',
         
         -- Timestamps
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
 
-    // Table pour les boutiques (optionnel, pour les stats)
+    // Table pour les boutiques
     const createShopsTable = `
       CREATE TABLE IF NOT EXISTS shops (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        domain TEXT UNIQUE NOT NULL,
-        shop_name TEXT,
-        email TEXT,
-        currency TEXT DEFAULT 'MAD',
-        timezone TEXT DEFAULT 'Africa/Casablanca',
+        id SERIAL PRIMARY KEY,
+        domain VARCHAR(255) UNIQUE NOT NULL,
+        shop_name VARCHAR(255),
+        email VARCHAR(255),
+        currency VARCHAR(10) DEFAULT 'MAD',
+        timezone VARCHAR(100) DEFAULT 'Africa/Casablanca',
         
         -- Configuration COD
-        cod_enabled BOOLEAN DEFAULT 1,
-        default_delivery_fee REAL DEFAULT 0,
+        cod_enabled BOOLEAN DEFAULT TRUE,
+        default_delivery_fee DECIMAL(10,2) DEFAULT 0,
         
         -- Timestamps
-        installed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        last_active DATETIME DEFAULT CURRENT_TIMESTAMP
+        installed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
 
-    // Table pour les logs (optionnel, pour le debugging)
+    // Table pour les logs
     const createLogsTable = `
       CREATE TABLE IF NOT EXISTS cod_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        shop_domain TEXT,
-        level TEXT DEFAULT 'info',
+        id SERIAL PRIMARY KEY,
+        shop_domain VARCHAR(255),
+        level VARCHAR(20) DEFAULT 'info',
         message TEXT,
         data TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
 
     // Exécuter les créations de tables
-    database.exec(createShopsTable);
-    database.exec(createCODOrdersTable);
-    database.exec(createLogsTable);
+    await client.query(createShopsTable);
+    await client.query(createCODOrdersTable);
+    await client.query(createLogsTable);
 
     // Créer les index pour optimiser les performances
     const indexes = [
@@ -113,106 +102,96 @@ export function initializeDatabase() {
       `CREATE INDEX IF NOT EXISTS idx_shops_domain ON shops(domain)`
     ];
 
-    indexes.forEach(indexQuery => {
-      database.exec(indexQuery);
-    });
+    for (const indexQuery of indexes) {
+      await client.query(indexQuery);
+    }
 
-    console.log('Database connected successfully');
-    console.log('Database tables created successfully');
+    console.log('✅ Tables PostgreSQL créées avec succès');
 
     // Insérer des données par défaut si nécessaire
-    initializeDefaultData();
+    await initializeDefaultData(client);
 
-    return true; // Succès
+    client.release();
+    return true;
 
   } catch (error) {
-    console.error('❌ Error creating database tables:', error);
+    console.error('❌ Erreur lors de la création des tables PostgreSQL:', error);
     throw error;
   }
 }
 
 // 📊 INSÉRER DES DONNÉES PAR DÉFAUT
-function initializeDefaultData() {
+async function initializeDefaultData(client) {
   try {
     // Vérifier si des boutiques existent déjà
-    const shopCount = database.prepare('SELECT COUNT(*) as count FROM shops').get().count;
+    const shopCount = await client.query('SELECT COUNT(*) as count FROM shops');
     
-    if (shopCount === 0) {
+    if (shopCount.rows[0].count == 0) {
       // Insérer la boutique de test par défaut
-      const insertShop = database.prepare(`
-        INSERT OR IGNORE INTO shops (
+      await client.query(`
+        INSERT INTO shops (
           domain, shop_name, currency, cod_enabled, default_delivery_fee
-        ) VALUES (?, ?, ?, ?, ?)
-      `);
-
-      insertShop.run(
+        ) VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (domain) DO NOTHING
+      `, [
         'rt-solutions-test.myshopify.com',
         'RT Solutions Test',
         'MAD',
-        1,
+        true,
         0
-      );
+      ]);
 
-      console.log('✅ Default shop data inserted');
+      console.log('✅ Données par défaut insérées');
     }
 
   } catch (error) {
-    console.warn('⚠️ Warning: Could not insert default data:', error.message);
+    console.warn('⚠️ Attention: Impossible d\'insérer les données par défaut:', error.message);
   }
 }
 
-// 🧹 FONCTION DE NETTOYAGE (optionnel)
-export function cleanupDatabase() {
+// 🧹 FONCTION DE NETTOYAGE
+export async function cleanupDatabase() {
   try {
+    const client = await pool.connect();
+    
     // Nettoyer les anciens logs (plus de 30 jours)
-    database.prepare(`
+    await client.query(`
       DELETE FROM cod_logs 
-      WHERE created_at < datetime('now', '-30 days')
-    `).run();
+      WHERE created_at < NOW() - INTERVAL '30 days'
+    `);
 
     // Nettoyer les commandes annulées très anciennes (plus de 90 jours)
-    database.prepare(`
+    await client.query(`
       DELETE FROM cod_orders 
       WHERE status = 'cancelled' 
-      AND created_at < datetime('now', '-90 days')
-    `).run();
+      AND created_at < NOW() - INTERVAL '90 days'
+    `);
 
-    console.log('✅ Database cleanup completed');
-
-  } catch (error) {
-    console.error('❌ Database cleanup error:', error);
-  }
-}
-
-// 📊 FONCTION DE BACKUP (optionnel)
-export function backupDatabase() {
-  try {
-    const backupPath = join(__dirname, '..', 'database', `cod_orders_backup_${Date.now()}.db`);
-    database.backup(backupPath);
-    console.log('✅ Database backup created:', backupPath);
-    return backupPath;
+    client.release();
+    console.log('✅ Nettoyage PostgreSQL terminé');
 
   } catch (error) {
-    console.error('❌ Database backup error:', error);
-    throw error;
+    console.error('❌ Erreur lors du nettoyage PostgreSQL:', error);
   }
 }
 
 // 🔧 FERMER LA CONNEXION PROPREMENT
-export function closeDatabase() {
+export async function closeDatabase() {
   try {
-    database.close();
-    console.log('✅ Database connection closed');
+    await pool.end();
+    console.log('✅ Connexions PostgreSQL fermées');
   } catch (error) {
-    console.error('❌ Error closing database:', error);
+    console.error('❌ Erreur lors de la fermeture PostgreSQL:', error);
   }
 }
 
+// Export du pool pour utilisation dans les services
+export { pool };
+
 // ✅ EXPORTS CORRECTS
 export default {
-  database,
+  pool,
   initializeDatabase,
   cleanupDatabase,
-  backupDatabase,
   closeDatabase
 };

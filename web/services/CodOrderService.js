@@ -1,7 +1,5 @@
-// web/services/CODOrderService.js
-// Service pour gérer les commandes COD en base de données
-
-import { database } from './DatabaseService.js';
+// web/services/CODOrderService.js - Version PostgreSQL
+import { pool } from './DatabaseService.js';
 
 export class CODOrderService {
   
@@ -30,10 +28,11 @@ export class CODOrderService {
           order_notes,
           status,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
+        RETURNING *
       `;
 
-      const params = [
+      const values = [
         orderData.shopDomain,
         orderData.shopifyOrderId,
         orderData.orderNumber,
@@ -55,18 +54,17 @@ export class CODOrderService {
         orderData.status || 'pending'
       ];
 
-      const result = database.prepare(query).run(...params);
+      const client = await pool.connect();
+      const result = await client.query(query, values);
+      client.release();
       
-      console.log('✅ COD order saved to database with ID:', result.lastInsertRowid);
+      console.log('✅ Commande COD sauvegardée en PostgreSQL avec ID:', result.rows[0].id);
       
-      return {
-        id: result.lastInsertRowid,
-        ...orderData
-      };
+      return result.rows[0];
 
     } catch (error) {
-      console.error('❌ Error saving COD order to database:', error);
-      throw new Error(`Database save failed: ${error.message}`);
+      console.error('❌ Erreur lors de la sauvegarde en PostgreSQL:', error);
+      throw new Error(`Erreur base de données: ${error.message}`);
     }
   }
 
@@ -75,16 +73,19 @@ export class CODOrderService {
     try {
       const query = `
         SELECT * FROM cod_orders 
-        WHERE shop_domain = ? 
+        WHERE shop_domain = $1 
         ORDER BY created_at DESC
       `;
 
-      const orders = database.prepare(query).all(shopDomain);
-      return orders;
+      const client = await pool.connect();
+      const result = await client.query(query, [shopDomain]);
+      client.release();
+
+      return result.rows;
 
     } catch (error) {
-      console.error('❌ Error fetching COD orders:', error);
-      throw new Error(`Database fetch failed: ${error.message}`);
+      console.error('❌ Erreur lors de la récupération des commandes:', error);
+      throw new Error(`Erreur base de données: ${error.message}`);
     }
   }
 
@@ -93,42 +94,52 @@ export class CODOrderService {
     try {
       const query = `
         SELECT * FROM cod_orders 
-        WHERE shopify_order_id = ?
+        WHERE shopify_order_id = $1
       `;
 
-      const order = database.prepare(query).get(shopifyOrderId);
-      return order;
+      const client = await pool.connect();
+      const result = await client.query(query, [shopifyOrderId]);
+      client.release();
+
+      return result.rows[0];
 
     } catch (error) {
-      console.error('❌ Error fetching COD order by Shopify ID:', error);
-      throw new Error(`Database fetch failed: ${error.message}`);
+      console.error('❌ Erreur lors de la récupération de la commande:', error);
+      throw new Error(`Erreur base de données: ${error.message}`);
     }
   }
 
   // Mettre à jour le statut d'une commande
   static async updateOrderStatus(shopifyOrderId, status, notes = null) {
     try {
-      const query = `
+      let query = `
         UPDATE cod_orders 
-        SET status = ?, updated_at = datetime('now')
-        ${notes ? ', order_notes = ?' : ''}
-        WHERE shopify_order_id = ?
+        SET status = $1, updated_at = NOW()
       `;
+      let values = [status];
 
-      const params = notes ? [status, notes, shopifyOrderId] : [status, shopifyOrderId];
-      
-      const result = database.prepare(query).run(...params);
-      
-      if (result.changes === 0) {
-        throw new Error('Order not found');
+      if (notes) {
+        query += `, order_notes = $2 WHERE shopify_order_id = $3`;
+        values = [status, notes, shopifyOrderId];
+      } else {
+        query += ` WHERE shopify_order_id = $2`;
+        values = [status, shopifyOrderId];
       }
 
-      console.log('✅ COD order status updated:', shopifyOrderId, 'to', status);
+      const client = await pool.connect();
+      const result = await client.query(query, values);
+      client.release();
+      
+      if (result.rowCount === 0) {
+        throw new Error('Commande non trouvée');
+      }
+
+      console.log('✅ Statut de la commande mis à jour:', shopifyOrderId, 'vers', status);
       return true;
 
     } catch (error) {
-      console.error('❌ Error updating COD order status:', error);
-      throw new Error(`Database update failed: ${error.message}`);
+      console.error('❌ Erreur lors de la mise à jour du statut:', error);
+      throw new Error(`Erreur base de données: ${error.message}`);
     }
   }
 
@@ -136,71 +147,100 @@ export class CODOrderService {
   static async getOrderStats(shopDomain) {
     try {
       const queries = {
-        total: `SELECT COUNT(*) as count FROM cod_orders WHERE shop_domain = ?`,
-        pending: `SELECT COUNT(*) as count FROM cod_orders WHERE shop_domain = ? AND status = 'pending'`,
-        confirmed: `SELECT COUNT(*) as count FROM cod_orders WHERE shop_domain = ? AND status = 'confirmed'`,
-        delivered: `SELECT COUNT(*) as count FROM cod_orders WHERE shop_domain = ? AND status = 'delivered'`,
-        totalRevenue: `SELECT SUM(total) as revenue FROM cod_orders WHERE shop_domain = ? AND status IN ('delivered', 'confirmed')`
+        total: `SELECT COUNT(*) as count FROM cod_orders WHERE shop_domain = $1`,
+        pending: `SELECT COUNT(*) as count FROM cod_orders WHERE shop_domain = $1 AND status = 'pending'`,
+        confirmed: `SELECT COUNT(*) as count FROM cod_orders WHERE shop_domain = $1 AND status = 'confirmed'`,
+        delivered: `SELECT COUNT(*) as count FROM cod_orders WHERE shop_domain = $1 AND status = 'delivered'`,
+        totalRevenue: `SELECT SUM(total) as revenue FROM cod_orders WHERE shop_domain = $1 AND status IN ('delivered', 'confirmed')`
       };
 
+      const client = await pool.connect();
       const stats = {};
+
       for (const [key, query] of Object.entries(queries)) {
-        const result = database.prepare(query).get(shopDomain);
-        stats[key] = result.count || result.revenue || 0;
+        const result = await client.query(query, [shopDomain]);
+        stats[key] = result.rows[0].count || result.rows[0].revenue || 0;
       }
 
+      client.release();
       return stats;
 
     } catch (error) {
-      console.error('❌ Error fetching COD order stats:', error);
-      throw new Error(`Database stats failed: ${error.message}`);
+      console.error('❌ Erreur lors de la récupération des statistiques:', error);
+      throw new Error(`Erreur base de données: ${error.message}`);
     }
   }
 
   // Rechercher des commandes par critères
   static async searchOrders(shopDomain, criteria) {
     try {
-      let query = `SELECT * FROM cod_orders WHERE shop_domain = ?`;
-      let params = [shopDomain];
+      let query = `SELECT * FROM cod_orders WHERE shop_domain = $1`;
+      let values = [shopDomain];
+      let paramIndex = 2;
 
       if (criteria.customerName) {
-        query += ` AND customer_name LIKE ?`;
-        params.push(`%${criteria.customerName}%`);
+        query += ` AND customer_name ILIKE $${paramIndex}`;
+        values.push(`%${criteria.customerName}%`);
+        paramIndex++;
       }
 
       if (criteria.customerPhone) {
-        query += ` AND customer_phone LIKE ?`;
-        params.push(`%${criteria.customerPhone}%`);
+        query += ` AND customer_phone LIKE $${paramIndex}`;
+        values.push(`%${criteria.customerPhone}%`);
+        paramIndex++;
       }
 
       if (criteria.status) {
-        query += ` AND status = ?`;
-        params.push(criteria.status);
+        query += ` AND status = $${paramIndex}`;
+        values.push(criteria.status);
+        paramIndex++;
       }
 
       if (criteria.dateFrom) {
-        query += ` AND created_at >= ?`;
-        params.push(criteria.dateFrom);
+        query += ` AND created_at >= $${paramIndex}`;
+        values.push(criteria.dateFrom);
+        paramIndex++;
       }
 
       if (criteria.dateTo) {
-        query += ` AND created_at <= ?`;
-        params.push(criteria.dateTo);
+        query += ` AND created_at <= $${paramIndex}`;
+        values.push(criteria.dateTo);
+        paramIndex++;
       }
 
       query += ` ORDER BY created_at DESC`;
 
       if (criteria.limit) {
-        query += ` LIMIT ?`;
-        params.push(criteria.limit);
+        query += ` LIMIT $${paramIndex}`;
+        values.push(criteria.limit);
       }
 
-      const orders = database.prepare(query).all(...params);
-      return orders;
+      const client = await pool.connect();
+      const result = await client.query(query, values);
+      client.release();
+
+      return result.rows;
 
     } catch (error) {
-      console.error('❌ Error searching COD orders:', error);
-      throw new Error(`Database search failed: ${error.message}`);
+      console.error('❌ Erreur lors de la recherche de commandes:', error);
+      throw new Error(`Erreur base de données: ${error.message}`);
+    }
+  }
+
+  // Méthode compatible pour le service existant
+  static async create(orderData) {
+    return this.saveOrder(orderData);
+  }
+
+  // Notification de commande (placeholder)
+  static async sendOrderNotification(order) {
+    try {
+      console.log('📧 Notification pour commande:', order.id);
+      // TODO: Implémenter l'envoi d'email/SMS
+      return true;
+    } catch (error) {
+      console.warn('⚠️ Erreur lors de l\'envoi de notification:', error.message);
+      return false;
     }
   }
 }
