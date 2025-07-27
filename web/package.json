@@ -28,11 +28,5 @@
   },
   "devDependencies": {
     "nodemon": "^2.0.22"
-  },
-  "overrides": {
-    "better-sqlite3": "npm:@empty-package/empty-package@1.0.0"
-  },
-  "resolutions": {
-    "better-sqlite3": "npm:@empty-package/empty-package@1.0.0"
   }
 }
