@@ -1,21 +1,18 @@
 {
-  "name": "shopify-app-template-node",
+  "name": "rt-cod-boost",
   "version": "1.0.0",
-  "description": "RT COD Boost Shopify App Backend",
-  "main": "index.js",
+  "description": "Application Shopify COD (Cash on Delivery) pour RT Solutions",
   "type": "module",
+  "main": "index.js",
   "engines": {
     "node": "18.x",
     "npm": ">=8.0.0"
   },
   "scripts": {
-    "dev": "cross-env NODE_ENV=development nodemon index.js --ignore ./frontend",
-    "start": "cross-env NODE_ENV=production node index.js",
-    "build": "echo 'Backend build complete'"
+    "start": "cd web && node index.js",
+    "dev": "shopify app dev",
+    "build": "echo 'Build completed'"
   },
-  "keywords": ["shopify", "cod", "cash-on-delivery"],
-  "author": "RT Solutions",
-  "license": "MIT",
   "dependencies": {
     "@shopify/shopify-api": "^13.4.0",
     "@shopify/shopify-app-express": "^4.1.0",
@@ -28,5 +25,14 @@
   },
   "devDependencies": {
     "nodemon": "^2.0.22"
-  }
+  },
+  "keywords": [
+    "shopify",
+    "cod",
+    "cash-on-delivery",
+    "ecommerce",
+    "morocco"
+  ],
+  "author": "RT Solutions",
+  "license": "MIT"
 }
