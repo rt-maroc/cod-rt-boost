@@ -45,6 +45,7 @@ app.use(cors({
     'X-Shopify-Topic',
     'X-Shopify-Hmac-Sha256',
     'X-Shopify-Shop-Domain',
+    'X-Shopify-Customer-Id', // ⭐ AJOUTÉ pour App Proxy
     'X-COD-Dev-Mode'
   ]
 }));
@@ -52,6 +53,61 @@ app.use(cors({
 // Middleware de parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ================================
+// 🆕 ROUTES APP PROXY SHOPIFY
+// ================================
+
+// Middleware spécial pour App Proxy
+app.use('/apps/cod-boost/*', (req, res, next) => {
+  console.log('📱 App Proxy request:', {
+    url: req.originalUrl,
+    method: req.method,
+    shop: req.headers['x-shopify-shop-domain'],
+    customer: req.headers['x-shopify-customer-id']
+  });
+  
+  // Headers CORS spécifiques pour App Proxy
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Shopify-Shop-Domain, X-Shopify-Customer-Id');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
+  next();
+});
+
+// Health check pour App Proxy
+app.get('/apps/cod-boost/health', (req, res) => {
+  res.json({
+    status: 'healthy - App Proxy',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0',
+    service: 'rt-cod-boost',
+    source: 'app-proxy',
+    shop: req.headers['x-shopify-shop-domain'] || 'unknown',
+    customer: req.headers['x-shopify-customer-id'] || 'guest'
+  });
+});
+
+// Route de test App Proxy
+app.get('/apps/cod-boost/test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'App Proxy fonctionne correctement!',
+    shop: req.headers['x-shopify-shop-domain'],
+    customer: req.headers['x-shopify-customer-id'],
+    timestamp: new Date().toISOString(),
+    headers: req.headers
+  });
+});
+
+// ================================
+// ROUTES EXISTANTES (pas de changement)
+// ================================
 
 // Route de santé pour Render
 app.get('/health', (req, res) => {
@@ -71,12 +127,13 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/health',
       api: '/apps/cod-boost/api/orders',
-      admin: '/admin'
+      admin: '/admin',
+      appProxy: '/apps/cod-boost/test' // ⭐ AJOUTÉ
     }
   });
 });
 
-// Routes API COD
+// Routes API COD (existante - pas de changement)
 app.use('/apps/cod-boost/api/orders', codOrdersRouter);
 
 // Servir les fichiers statiques du frontend (si build)
@@ -133,6 +190,7 @@ async function startServer() {
       console.log(`🚀 COD Boost Server running on http://${HOST}:${PORT}`);
       console.log(`📊 Health check: http://${HOST}:${PORT}/health`);
       console.log(`🛒 API Endpoint: http://${HOST}:${PORT}/apps/cod-boost/api/orders`);
+      console.log(`🧪 App Proxy Test: http://${HOST}:${PORT}/apps/cod-boost/test`); // ⭐ AJOUTÉ
       console.log(`🏠 Admin Panel: http://${HOST}:${PORT}/admin`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
