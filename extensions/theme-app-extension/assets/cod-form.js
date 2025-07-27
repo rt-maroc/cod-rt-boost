@@ -29,8 +29,7 @@
         '[data-cod-form]',
         'form[action*="cod"]',
         'form.cod-form',
-        '.rt_cod_boost_cod_order_form form',
-        '#cod-form-' + this.getProductId()
+        '.rt_cod_boost_cod_order_form form'
       ];
 
       for (let selector of selectors) {
@@ -41,32 +40,7 @@
         }
       }
       
-      // Recherche par contenu des boutons
-      const buttons = document.querySelectorAll('button[type="submit"], input[type="submit"]');
-      for (let button of buttons) {
-        const text = button.textContent || button.value || '';
-        if (text.toLowerCase().includes('commander') || 
-            text.toLowerCase().includes('confirmer') ||
-            text.toLowerCase().includes('cod')) {
-          const form = button.closest('form');
-          if (form && form.classList.contains('cod-order-form')) {
-            console.log('✅ COD Form trouvé via bouton:', text);
-            return form;
-          }
-        }
-      }
-
       return null;
-    }
-
-    getProductId() {
-      const productContainer = document.querySelector('[data-product-id]');
-      if (productContainer) {
-        return productContainer.dataset.productId;
-      }
-      
-      const urlMatch = window.location.pathname.match(/\/products\/[\w-]+/);
-      return urlMatch ? urlMatch[0].split('/').pop() : 'unknown';
     }
 
     // 🔄 Initialisation avec retry
@@ -82,7 +56,6 @@
         
         this.attachEventListeners();
         this.initQuantityControls();
-        this.initVariantSelector();
         
         console.log('✅ COD Form initialisé avec succès');
         
@@ -152,25 +125,6 @@
       }
     }
 
-    // 🎯 Sélecteur de variantes
-    initVariantSelector() {
-      if (!this.form) return;
-
-      const variantSelect = this.form.querySelector('select[name="variant_id"]');
-      if (variantSelect) {
-        variantSelect.addEventListener('change', (e) => {
-          const selectedOption = e.target.selectedOptions[0];
-          const price = selectedOption.dataset.price;
-          
-          const priceInput = this.form.querySelector('input[name="product_price"]');
-          if (priceInput && price) {
-            priceInput.value = price;
-            this.updatePriceDisplay();
-          }
-        });
-      }
-    }
-
     // 💰 Mise à jour de l'affichage du prix
     updatePriceDisplay() {
       const qtyInput = this.form.querySelector('input[name="quantity"]');
@@ -219,110 +173,64 @@
         this.submitButton.addEventListener('click', handleButtonClick, true);
         this.submitButton.onclick = handleButtonClick;
       }
-
-      this.observeFormChanges();
     }
 
-    observeFormChanges() {
-      if (typeof MutationObserver !== 'undefined') {
-        const observer = new MutationObserver((mutations) => {
-          mutations.forEach((mutation) => {
-            if (mutation.type === 'childList') {
-              if (this.form && !this.form.dataset.codInitialized) {
-                this.attachEventListeners();
-                this.form.dataset.codInitialized = 'true';
-              }
-            }
-          });
-        });
-
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true
-        });
-      }
-    }
-
-    // 🔧 URL API intelligente selon l'environnement
+    // 🔧 URL API - UTILISERA TOUJOURS L'APP PROXY
     getApiUrl() {
+      // 1. Configuration prioritaire depuis le thème
       if (window.COD_CONFIG && window.COD_CONFIG.apiUrl) {
+        console.log('🎯 Using configured API URL:', window.COD_CONFIG.apiUrl);
         return window.COD_CONFIG.apiUrl;
       }
       
-      if (this.isDevelopment) {
-        // Essayer d'utiliser le port sauvegardé qui fonctionne
-        const savedPort = localStorage.getItem('cod_working_port');
-        if (savedPort) {
-          return `http://localhost:${savedPort}/apps/cod-boost/api/orders`;
-        }
-        // Port actuel détecté (change à chaque redémarrage)
-        return 'http://localhost:56669/apps/cod-boost/api/orders';
-      }
-      
-      return "/apps/cod-boost/api/orders";
-    }
-
-    // 📡 Requête avec gestion des erreurs et fallback avec plusieurs ports
-    async tryRequest(url, data) {
-      // Ports de développement possibles (le port change à chaque redémarrage)
-      const fallbackUrls = [
-        url,
-        'http://localhost:56669/apps/cod-boost/api/orders', // Port actuel
-        'http://localhost:55157/apps/cod-boost/api/orders', // Port précédent
-        'http://localhost:56666/apps/cod-boost/api/orders', // Port proxy
-        'http://localhost:3000/apps/cod-boost/api/orders',  // Port alternatif
-        '/apps/cod-boost/api/orders' // Fallback vers App Proxy
-      ];
-
-      for (let testUrl of fallbackUrls) {
-        try {
-          console.log(`🔄 Tentative: ${testUrl}`);
-          
-          const response = await fetch(testUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Shopify-Shop-Domain': this.getShopDomain(),
-              ...(this.isDevelopment ? { 'X-COD-Dev-Mode': 'true' } : {})
-            },
-            body: JSON.stringify(data)
-          });
-          
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          
-          console.log('✅ Requête réussie avec:', testUrl);
-          
-          // Sauvegarder le port qui fonctionne pour les prochaines requêtes
-          if (testUrl.includes('localhost:') && this.isDevelopment) {
-            const port = testUrl.match(/localhost:(\d+)/)[1];
-            localStorage.setItem('cod_working_port', port);
-            console.log('💾 Port sauvegardé:', port);
-          }
-          
-          return response;
-          
-        } catch (error) {
-          console.warn(`❌ Échec avec ${testUrl}:`, error.message);
-          if (testUrl === fallbackUrls[fallbackUrls.length - 1]) {
-            throw error;
-          }
-          // Continuer avec le prochain URL
-        }
-      }
+      // 2. App Proxy par défaut (PRODUCTION)
+      const appProxyUrl = `/apps/cod-boost/api/orders`;
+      console.log('🌍 Using App Proxy URL:', appProxyUrl);
+      return appProxyUrl;
     }
 
     getShopDomain() {
+      // 1. Configuration explicite
       if (window.COD_CONFIG && window.COD_CONFIG.shopDomain) {
         return window.COD_CONFIG.shopDomain;
       }
       
+      // 2. Variable Shopify Liquid (si disponible)
+      if (window.Shopify && window.Shopify.shop) {
+        return window.Shopify.shop;
+      }
+      
+      // 3. Détection depuis l'URL
       if (window.location.hostname.includes('myshopify.com')) {
         return window.location.hostname;
       }
       
+      // 4. Fallback
       return 'rt-solutions-test.myshopify.com';
+    }
+
+    // 📡 Requête simplifiée pour App Proxy
+    async makeRequest(url, data) {
+      console.log(`🔄 Envoi vers: ${url}`);
+      
+      const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      };
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(data),
+        credentials: 'same-origin'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      console.log('✅ Requête réussie');
+      return response;
     }
 
     // 📋 Traitement de la soumission
@@ -342,8 +250,9 @@
         const orderData = this.prepareOrderData(formData);
 
         console.log('📦 Order data:', orderData);
+        console.log('🌐 API URL:', this.getApiUrl());
 
-        const response = await this.tryRequest(this.getApiUrl(), orderData);
+        const response = await this.makeRequest(this.getApiUrl(), orderData);
         const result = await response.json();
 
         console.log('✅ Order submitted successfully:', result);
@@ -355,6 +264,7 @@
         let errorMessage = 'Erreur lors de la soumission. Veuillez réessayer.';
         if (this.isDevelopment) {
           errorMessage += `\n\nDétails: ${error.message}`;
+          errorMessage += `\nAPI URL: ${this.getApiUrl()}`;
         }
         
         this.showError(errorMessage);
@@ -369,25 +279,20 @@
         data[key] = value;
       }
       
-      // Récupération depuis l'URL si nécessaire
-      const urlParams = new URLSearchParams(window.location.search);
+      // Récupérer les informations produit depuis la page
+      if (!data.product_id && window.ShopifyAnalytics?.meta?.product?.id) {
+        data.product_id = window.ShopifyAnalytics.meta.product.id;
+      }
       
-      const requiredFields = [
-        'product_id', 'variant_id', 'product_title', 
-        'product_price', 'product_image', 'quantity'
-      ];
-      
-      requiredFields.forEach(field => {
-        if (!data[field] && urlParams.has(field)) {
-          data[field] = urlParams.get(field);
-        }
-      });
+      if (!data.variant_id && window.ShopifyAnalytics?.meta?.product?.variants?.[0]?.id) {
+        data.variant_id = window.ShopifyAnalytics.meta.product.variants[0].id;
+      }
       
       // Calculs
       const quantity = parseInt(data.quantity) || 1;
       const unitPrice = parseFloat(data.product_price) || 0;
       const subtotal = quantity * unitPrice;
-      const deliveryFee = parseFloat(data.delivery_fee) || 0;
+      const deliveryFee = parseFloat(data.delivery_fee) || 3000; // 30 DH par défaut
       const total = subtotal + deliveryFee;
       
       return {
@@ -396,9 +301,10 @@
         subtotal,
         delivery_fee: deliveryFee,
         total,
-        debug: this.isDevelopment,
         source: 'cod-form-script',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        shop_domain: this.getShopDomain(),
+        page_url: window.location.href
       };
     }
 
@@ -442,8 +348,8 @@
         this.responseDiv.innerHTML = `
           <div style="background: #d4edda; color: #155724; padding: 15px; border: 1px solid #c3e6cb; border-radius: 8px; margin: 20px 0; font-size: 16px; text-align: center;">
             <div style="font-weight: bold; margin-bottom: 10px;">✅ Commande confirmée avec succès!</div>
-            <div>📦 Numéro: <strong>#${result.orderNumber || result.order_number || result.order_id || 'N/A'}</strong></div>
-            ${this.isDevelopment ? '<div style="margin-top: 10px; font-size: 12px; opacity: 0.8;">🔧 Mode développement</div>' : ''}
+            <div>📦 Numéro: <strong>#${result.orderNumber || result.order_number || result.order_id || 'COD-' + Date.now()}</strong></div>
+            <div style="margin-top: 10px; font-size: 14px;">Merci pour votre commande ! Vous serez contacté sous peu.</div>
             <div style="margin-top: 15px;">
               <div style="display: inline-block; width: 20px; height: 20px; border: 2px solid #155724; border-top: 2px solid transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
               <span style="margin-left: 10px;">Redirection vers la page de confirmation...</span>
@@ -460,33 +366,36 @@
         this.responseDiv.scrollIntoView({ behavior: 'smooth' });
       }
 
-      // Redirection seulement si pas en mode développement
-      if (!this.isDevelopment) {
-        setTimeout(() => {
-          this.redirectToThankYouPage(result);
-        }, 2000);
-      } else {
-        console.log('🔧 Redirection désactivée en mode développement');
-      }
+      // Redirection automatique après succès
+      setTimeout(() => {
+        this.redirectToThankYouPage(result);
+      }, 2000);
     }
 
     redirectToThankYouPage(result) {
       const orderId = result.order_id || result.shopifyOrderId || result.id;
       const orderNumber = result.orderNumber || result.order_number;
       
-      if (orderId) {
+      // Essayer la page de remerciement Shopify d'abord
+      if (orderId && orderId !== 'COD-' + Date.now()) {
         const thankYouUrl = `/checkout/orders/${orderId}/thank_you`;
         console.log('🔄 Redirecting to Shopify thank you page:', thankYouUrl);
         window.location.href = thankYouUrl;
-      } else if (orderNumber) {
-        const confirmationUrl = `/pages/thank-you?order=${orderNumber}`;
+        return;
+      }
+      
+      // Sinon, page de confirmation personnalisée
+      if (orderNumber) {
+        const confirmationUrl = `/pages/commande-confirmee?order=${orderNumber}`;
         console.log('🔄 Redirecting to confirmation page:', confirmationUrl);
         window.location.href = confirmationUrl;
-      } else {
-        const fallbackUrl = '/pages/commande-confirmee';
-        console.log('🔄 Redirecting to fallback page:', fallbackUrl);
-        window.location.href = fallbackUrl;
+        return;
       }
+      
+      // Fallback vers page générique
+      const fallbackUrl = '/pages/merci-commande';
+      console.log('🔄 Redirecting to fallback page:', fallbackUrl);
+      window.location.href = fallbackUrl;
     }
 
     showError(message) {
@@ -496,14 +405,6 @@
             <div style="font-weight: bold; margin-bottom: 10px;">❌ Erreur de commande</div>
             <div style="white-space: pre-line;">${message || 'Une erreur est survenue. Veuillez réessayer.'}</div>
             <div style="margin-top: 10px; font-size: 14px;">Si le problème persiste, contactez-nous directement.</div>
-            ${this.isDevelopment ? `
-              <div style="margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 4px; font-size: 12px;">
-                🔧 Debug Info:<br>
-                API URL: ${this.getApiUrl()}<br>
-                Shop: ${this.getShopDomain()}<br>
-                Mode: ${this.isDevelopment ? 'Développement' : 'Production'}
-              </div>
-            ` : ''}
           </div>
         `;
         
@@ -534,81 +435,23 @@
     setTimeout(initCODForm, 2000);
   }
 
-  // Fonctions utilitaires pour les développeurs
+  // 🧪 Fonctions de debug
   window.enableCODDebug = function() {
     localStorage.setItem('cod_debug', 'true');
     console.log('🔧 Mode debug COD activé');
     location.reload();
   };
 
-  window.testCODAPI = async function() {
-    const testData = {
-      customer_name: 'Test Customer',
-      customer_phone: '+212600000000',
-      customer_email: 'test@example.com',
-      delivery_address: '123 Test Street',
-      delivery_city: 'Casablanca',
-      delivery_postal_code: '20000',
-      product_id: '123',
-      variant_id: '456',
-      product_title: 'Test Product',
-      product_price: 10000,
-      quantity: 1,
-      total: 10000
-    };
-
-    // Tester le port actuel détecté
-    const currentPort = 56669;
-    const testUrl = `http://localhost:${currentPort}/apps/cod-boost/api/orders`;
-    
+  window.testCODConnection = async function() {
     try {
-      console.log('🧪 Test API avec port actuel:', testUrl);
-      const response = await fetch(testUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Shop-Domain': 'rt-solutions-test.myshopify.com'
-        },
-        body: JSON.stringify(testData)
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('✅ Test API réussi:', result);
-        return result;
-      } else {
-        console.error('❌ Test API échoué:', response.status, response.statusText);
-        return null;
-      }
+      const response = await fetch('/apps/cod-boost/test');
+      const data = await response.json();
+      console.log('✅ App Proxy accessible:', data);
+      return true;
     } catch (error) {
-      console.error('❌ Erreur Test API:', error);
-      return null;
+      console.error('❌ Erreur App Proxy:', error);
+      return false;
     }
-  };
-
-  // Fonction pour découvrir le port actif
-  window.findCODPort = async function() {
-    const testPorts = [56669, 55157, 56666, 3000, 8080];
-    
-    for (let port of testPorts) {
-      try {
-        const response = await fetch(`http://localhost:${port}/apps/cod-boost/api/orders`, {
-          method: 'GET',
-          headers: { 'X-Shopify-Shop-Domain': 'rt-solutions-test.myshopify.com' }
-        });
-        
-        console.log(`✅ Port ${port} répond:`, response.status);
-        if (response.status < 500) { // Même une erreur 404 est mieux qu'une connexion refusée
-          localStorage.setItem('cod_working_port', port);
-          return port;
-        }
-      } catch (error) {
-        console.log(`❌ Port ${port} non disponible`);
-      }
-    }
-    
-    console.warn('❌ Aucun port COD trouvé');
-    return null;
   };
 
 })();
