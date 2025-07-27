@@ -3,17 +3,26 @@
   "version": "1.0.0",
   "description": "Application Shopify COD (Cash on Delivery) pour RT Solutions",
   "type": "module",
-  "main": "start.js",
+  "main": "index.js",
   "engines": {
     "node": "18.x",
     "npm": ">=8.0.0"
   },
   "scripts": {
-    "start": "node start.js",
+    "start": "cd web && node index.js",
     "dev": "shopify app dev",
     "build": "echo 'Build completed'"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@shopify/shopify-api": "^13.4.0",
+    "@shopify/shopify-app-express": "^4.1.0",
+    "compression": "^1.7.4",
+    "cors": "^2.8.5",
+    "cross-env": "^7.0.3",
+    "express": "^4.18.2",
+    "helmet": "^7.0.0",
+    "pg": "^8.11.3"
+  },
   "devDependencies": {
     "nodemon": "^2.0.22"
   },
