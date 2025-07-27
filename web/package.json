@@ -1,9 +1,13 @@
 {
   "name": "shopify-app-template-node",
   "version": "1.0.0",
-  "description": "RT COD Boost Shopify App",
+  "description": "RT COD Boost Shopify App Backend",
   "main": "index.js",
   "type": "module",
+  "engines": {
+    "node": "18.x",
+    "npm": ">=8.0.0"
+  },
   "scripts": {
     "dev": "cross-env NODE_ENV=development nodemon index.js --ignore ./frontend",
     "start": "cross-env NODE_ENV=production node index.js",
@@ -24,5 +28,11 @@
   },
   "devDependencies": {
     "nodemon": "^2.0.22"
+  },
+  "overrides": {
+    "better-sqlite3": "npm:@empty-package/empty-package@1.0.0"
+  },
+  "resolutions": {
+    "better-sqlite3": "npm:@empty-package/empty-package@1.0.0"
   }
 }
