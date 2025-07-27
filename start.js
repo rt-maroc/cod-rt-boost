@@ -43,30 +43,51 @@ process.env.PORT = process.env.PORT || 3000;
 
 console.log(`Application sera accessible sur: ${process.env.HOST}:${process.env.PORT}`);
 
-// Installer les dépendances web en premier
-console.log('Installation des dépendances web...');
-const installProcess = spawn('npm', ['install'], {
-  cwd: webDir,
-  stdio: 'inherit',
-  env: {
-    ...process.env,
-    NODE_ENV: 'production'
-  }
-});
+// Vérifier si les dépendances web sont déjà installées
+const webNodeModules = path.join(webDir, 'node_modules');
+const shopifyApiPath = path.join(webNodeModules, '@shopify', 'shopify-api');
 
-installProcess.on('error', (error) => {
-  console.error('ERREUR lors de l\'installation:', error);
-  process.exit(1);
-});
+if (!fs.existsSync(shopifyApiPath)) {
+  console.log('Dépendances Shopify manquantes, installation en cours...');
+  
+  const installProcess = spawn('npm', ['install', '--production=false'], {
+    cwd: webDir,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      NODE_ENV: 'development', // Force mode développement pour installer toutes les dépendances
+      NPM_CONFIG_PRODUCTION: 'false'
+    }
+  });
 
-installProcess.on('exit', (code) => {
-  if (code !== 0) {
-    console.error(`Installation échouée avec le code: ${code}`);
-    process.exit(code);
-  }
-  
-  console.log('Installation des dépendances terminée');
-  
+  installProcess.on('error', (error) => {
+    console.error('ERREUR lors de l\'installation:', error);
+    process.exit(1);
+  });
+
+  installProcess.on('exit', (code) => {
+    if (code !== 0) {
+      console.error(`Installation échouée avec le code: ${code}`);
+      process.exit(code);
+    }
+    
+    console.log('Installation des dépendances terminée');
+    
+    // Vérifier que les dépendances sont maintenant présentes
+    if (fs.existsSync(shopifyApiPath)) {
+      console.log('Dépendances Shopify installées avec succès');
+      startWebApp();
+    } else {
+      console.error('ERREUR: Dépendances Shopify toujours manquantes après installation');
+      process.exit(1);
+    }
+  });
+} else {
+  console.log('Dépendances web déjà présentes');
+  startWebApp();
+}
+
+function startWebApp() {
   // Démarrer l'application web
   console.log('Démarrage de l\'application web...');
   const webProcess = spawn('node', ['index.js'], {
@@ -74,7 +95,7 @@ installProcess.on('exit', (code) => {
     stdio: 'inherit',
     env: {
       ...process.env,
-      NODE_ENV: process.env.NODE_ENV,
+      NODE_ENV: 'production', // Retour en mode production pour l'exécution
       HOST: process.env.HOST,
       PORT: process.env.PORT
     }
@@ -101,14 +122,13 @@ installProcess.on('exit', (code) => {
     setTimeout(() => {
       console.log('Force shutdown après timeout');
       process.exit(1);
-    }, 30000); // 30 secondes de timeout
+    }, 30000);
   };
 
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2'));
 
-  // Gestion des erreurs non capturées
   process.on('uncaughtException', (error) => {
     console.error('ERREUR non capturée:', error);
     gracefulShutdown('SIGTERM');
@@ -118,6 +138,6 @@ installProcess.on('exit', (code) => {
     console.error('Promesse rejetée non gérée:', reason);
     gracefulShutdown('SIGTERM');
   });
-});
+}
 
 console.log('Script de démarrage initialisé');
