@@ -3,7 +3,7 @@
 client_id = "192e9c0790df6f5d66e8d1f56eb91cf8"
 name = "RT COD BOOST"
 handle = "rt-cod-boost-1"
-application_url = "https://greatly-hamburg-frame-circus.trycloudflare.com"
+application_url = "https://rt-cod-boost.onrender.com"
 embedded = true
 
 [build]
@@ -18,7 +18,7 @@ api_version = "2025-07"
 scopes = "read_customers,read_orders,read_products,write_draft_orders,write_orders,write_products"
 
 [auth]
-redirect_urls = ["https://greatly-hamburg-frame-circus.trycloudflare.com/auth/callback", "https://greatly-hamburg-frame-circus.trycloudflare.com/auth/shopify/callback", "https://greatly-hamburg-frame-circus.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://rt-cod-boost.onrender.com/auth/callback", "https://rt-cod-boost.onrender.com/auth/shopify/callback", "https://rt-cod-boost.onrender.com/api/auth/callback"]
 
 [pos]
 embedded = false
