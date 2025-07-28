@@ -1,457 +1,548 @@
-(function() {
-  'use strict';
+// COD Form Script v3.0 - Version corrigée pour RT COD Boost
+console.log('🎯 Initialising COD Form v3.0...');
 
-  class CODForm {
+// Fonction utilitaire pour récupérer les valeurs en sécurité
+function safeGetValue(element) {
+    if (!element) return '';
+    if (typeof element === 'string') return element.trim();
+    return element.value ? element.value.trim() : '';
+}
+
+// Fonction utilitaire pour récupérer un élément par sélecteur
+function safeGetElement(selector) {
+    try {
+        return document.querySelector(selector);
+    } catch (e) {
+        console.warn(`⚠️ Élément non trouvé: ${selector}`);
+        return null;
+    }
+}
+
+// Configuration COD - MISE À JOUR pour votre serveur
+const COD_CONFIG = {
+    // 🔥 API URL corrigée pour votre serveur
+    apiUrl: window.location.hostname === 'localhost' 
+        ? 'http://localhost:3000/api/orders/create'
+        : 'https://rt-cod-boost.onrender.com/api/orders/create',
+    debug: window.COD_CONFIG?.debug || false,
+    shopDomain: 'rtmaroc.myshopify.com' // Votre shop domain
+};
+
+console.log('🎯 COD Config loaded:', COD_CONFIG);
+
+class CODForm {
     constructor() {
-      this.maxRetries = 10;
-      this.currentRetry = 0;
-      this.isDevelopment = this.detectDevelopmentMode();
-      this.initForm();
+        this.form = null;
+        this.isSubmitting = false;
+        this.retryCount = 0;
+        this.maxRetries = 10;
+        this.currentRetry = 0;
+        this.init();
     }
 
-    // 🔍 Détection du mode développement
-    detectDevelopmentMode() {
-      return (
-        window.Shopify?.designMode || 
-        window.location.href.includes('preview_theme_id') ||
-        window.location.href.includes('editor') ||
-        window.location.hostname.includes('127.0.0.1') ||
-        window.location.hostname.includes('localhost') ||
-        localStorage.getItem('cod_debug') === 'true'
-      );
-    }
-
-    // 🔍 Recherche intelligente du formulaire
-    findForm() {
-      const selectors = [
-        '#cod-order-form',
-        '.cod-order-form', 
-        '[data-cod-form]',
-        'form[action*="cod"]',
-        'form.cod-form',
-        '.rt_cod_boost_cod_order_form form'
-      ];
-
-      for (let selector of selectors) {
-        const form = document.querySelector(selector);
-        if (form) {
-          console.log(`✅ COD Form trouvé avec: ${selector}`);
-          return form;
-        }
-      }
-      
-      return null;
-    }
-
-    // 🔄 Initialisation avec retry
-    initForm() {
-      const form = this.findForm();
-      
-      if (form) {
-        this.form = form;
-        this.submitButton = form.querySelector('button[type="submit"], input[type="submit"]');
-        this.responseDiv = document.querySelector('#cod-response') || 
-                          document.querySelector('.cod-response') ||
-                          this.createResponseDiv();
+    init() {
+        // Chercher le formulaire COD avec plusieurs méthodes
+        this.form = this.findForm();
         
-        this.attachEventListeners();
+        if (!this.form) {
+            this.currentRetry++;
+            if (this.currentRetry < this.maxRetries) {
+                console.log(`🔄 Retry ${this.currentRetry}/${this.maxRetries} - Recherche du formulaire...`);
+                setTimeout(() => this.init(), 500);
+            } else {
+                console.warn('❌ COD Form introuvable après', this.maxRetries, 'tentatives');
+            }
+            return;
+        }
+
+        console.log('✅ COD Form trouvé:', this.form.className || this.form.id);
+        this.setupEventListeners();
         this.initQuantityControls();
-        
-        console.log('✅ COD Form initialisé avec succès');
-        
-        if (this.isDevelopment) {
-          console.log('🔧 Mode développement détecté');
+        console.log('✅ COD Form initialisé avec succès - v3.0');
+    }
+
+    findForm() {
+        const selectors = [
+            '#cod-form',
+            '#cod-order-form', 
+            '.cod-order-form',
+            '[data-cod-form]',
+            'form[action*="cod"]',
+            'form.cod-form',
+            '.rt_cod_boost_cod_order_form form',
+            'form:has(input[name="customer_name"])', // Formulaire avec champ nom client
+            'form:has(input[name="customer_phone"])'  // Formulaire avec champ téléphone
+        ];
+
+        for (let selector of selectors) {
+            try {
+                const form = document.querySelector(selector);
+                if (form) {
+                    console.log(`✅ Formulaire trouvé avec: ${selector}`);
+                    return form;
+                }
+            } catch (e) {
+                // Certains sélecteurs avancés peuvent ne pas marcher sur tous les navigateurs
+                continue;
+            }
         }
         
-        return true;
-      } else {
-        this.currentRetry++;
-        if (this.currentRetry < this.maxRetries) {
-          console.log(`🔄 Retry ${this.currentRetry}/${this.maxRetries} - Recherche du formulaire...`);
-          setTimeout(() => this.initForm(), 500);
-        } else {
-          console.warn('❌ COD Form introuvable après', this.maxRetries, 'tentatives');
+        return null;
+    }
+
+    setupEventListeners() {
+        // Intercepter la soumission du formulaire
+        this.form.addEventListener('submit', (e) => this.handleSubmit(e), true);
+        
+        // Intercepter les clics sur les boutons
+        const buttons = this.form.querySelectorAll('button[type="submit"], input[type="submit"]');
+        buttons.forEach(button => {
+            button.addEventListener('click', (e) => this.handleButtonClick(e), true);
+        });
+    }
+
+    handleButtonClick(e) {
+        console.log('🔘 Button click intercepted');
+        
+        if (this.isSubmitting) {
+            e.preventDefault();
+            return false;
         }
-        return false;
-      }
+        
+        // Empêcher le comportement par défaut et déclencher notre logique
+        e.preventDefault();
+        setTimeout(() => {
+            this.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        }, 100);
     }
 
-    createResponseDiv() {
-      const div = document.createElement('div');
-      div.id = 'cod-response';
-      div.className = 'cod-response';
-      
-      if (this.form) {
-        this.form.parentNode.insertBefore(div, this.form.nextSibling);
-      } else {
-        document.body.appendChild(div);
-      }
-      
-      return div;
-    }
-
-    // 🎯 Contrôles de quantité
-    initQuantityControls() {
-      if (!this.form) return;
-
-      const qtyInput = this.form.querySelector('input[name="quantity"]');
-      const plusBtn = this.form.querySelector('.cod-qty-plus');
-      const minusBtn = this.form.querySelector('.cod-qty-minus');
-
-      if (qtyInput && plusBtn && minusBtn) {
-        plusBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          const currentValue = parseInt(qtyInput.value) || 1;
-          const maxValue = parseInt(qtyInput.getAttribute('max')) || 99;
-          if (currentValue < maxValue) {
-            qtyInput.value = currentValue + 1;
-            this.updatePriceDisplay();
-          }
-        });
-
-        minusBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          const currentValue = parseInt(qtyInput.value) || 1;
-          const minValue = parseInt(qtyInput.getAttribute('min')) || 1;
-          if (currentValue > minValue) {
-            qtyInput.value = currentValue - 1;
-            this.updatePriceDisplay();
-          }
-        });
-
-        qtyInput.addEventListener('change', () => {
-          this.updatePriceDisplay();
-        });
-      }
-    }
-
-    // 💰 Mise à jour de l'affichage du prix
-    updatePriceDisplay() {
-      const qtyInput = this.form.querySelector('input[name="quantity"]');
-      const priceInput = this.form.querySelector('input[name="product_price"]');
-      const priceDisplay = document.getElementById('cod-display-price');
-
-      if (qtyInput && priceInput && priceDisplay) {
-        const quantity = parseInt(qtyInput.value) || 1;
-        const unitPrice = parseFloat(priceInput.value) || 0;
-        const total = quantity * unitPrice;
-
-        const formattedPrice = new Intl.NumberFormat('fr-MA', {
-          style: 'currency',
-          currency: 'MAD',
-          minimumFractionDigits: 0
-        }).format(total / 100);
-
-        priceDisplay.textContent = formattedPrice;
-      }
-    }
-
-    attachEventListeners() {
-      if (!this.form) return;
-
-      const handleSubmit = (e) => {
+    async handleSubmit(e) {
         console.log('📝 Form submission intercepted');
         e.preventDefault();
         e.stopPropagation();
-        e.stopImmediatePropagation();
-        this.handleSubmit(e);
-        return false;
-      };
-
-      this.form.addEventListener('submit', handleSubmit, true);
-      this.form.onsubmit = handleSubmit;
-
-      if (this.submitButton) {
-        const handleButtonClick = (e) => {
-          console.log('🔘 Button click intercepted');
-          e.preventDefault();
-          e.stopPropagation();
-          this.handleSubmit(e);
-          return false;
-        };
-
-        this.submitButton.addEventListener('click', handleButtonClick, true);
-        this.submitButton.onclick = handleButtonClick;
-      }
-    }
-
-    // 🔧 URL API - UTILISERA TOUJOURS L'APP PROXY
-    getApiUrl() {
-      // 1. Configuration prioritaire depuis le thème
-      if (window.COD_CONFIG && window.COD_CONFIG.apiUrl) {
-        console.log('🎯 Using configured API URL:', window.COD_CONFIG.apiUrl);
-        return window.COD_CONFIG.apiUrl;
-      }
-      
-      // 2. App Proxy par défaut (PRODUCTION)
-      const appProxyUrl = `/apps/cod-boost/api/orders`;
-      console.log('🌍 Using App Proxy URL:', appProxyUrl);
-      return appProxyUrl;
-    }
-
-    getShopDomain() {
-      // 1. Configuration explicite
-      if (window.COD_CONFIG && window.COD_CONFIG.shopDomain) {
-        return window.COD_CONFIG.shopDomain;
-      }
-      
-      // 2. Variable Shopify Liquid (si disponible)
-      if (window.Shopify && window.Shopify.shop) {
-        return window.Shopify.shop;
-      }
-      
-      // 3. Détection depuis l'URL
-      if (window.location.hostname.includes('myshopify.com')) {
-        return window.location.hostname;
-      }
-      
-      // 4. Fallback
-      return 'rt-solutions-test.myshopify.com';
-    }
-
-    // 📡 Requête simplifiée pour App Proxy
-    async makeRequest(url, data) {
-      console.log(`🔄 Envoi vers: ${url}`);
-      
-      const headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      };
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(data),
-        credentials: 'same-origin'
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      console.log('✅ Requête réussie');
-      return response;
-    }
-
-    // 📋 Traitement de la soumission
-    async handleSubmit(e) {
-      console.log('🚀 COD Form submission started');
-      
-      // En mode prévisualisation, montrer une démo
-      if (window.Shopify && window.Shopify.designMode && !this.isDevelopment) {
-        this.showDemoSuccess();
-        return;
-      }
-
-      try {
-        this.setLoading(true);
-
-        const formData = new FormData(this.form);
-        const orderData = this.prepareOrderData(formData);
-
-        console.log('📦 Order data:', orderData);
-        console.log('🌐 API URL:', this.getApiUrl());
-
-        const response = await this.makeRequest(this.getApiUrl(), orderData);
-        const result = await response.json();
-
-        console.log('✅ Order submitted successfully:', result);
-        this.showSuccess(result);
-
-      } catch (error) {
-        console.error('❌ COD Form submission error:', error);
         
-        let errorMessage = 'Erreur lors de la soumission. Veuillez réessayer.';
-        if (this.isDevelopment) {
-          errorMessage += `\n\nDétails: ${error.message}`;
-          errorMessage += `\nAPI URL: ${this.getApiUrl()}`;
+        if (this.isSubmitting) {
+            return false;
         }
+
+        this.isSubmitting = true;
         
-        this.showError(errorMessage);
-      } finally {
-        this.setLoading(false);
-      }
-    }
-
-    prepareOrderData(formData) {
-      const data = {};
-      for (let [key, value] of formData.entries()) {
-        data[key] = value;
-      }
-      
-      // Récupérer les informations produit depuis la page
-      if (!data.product_id && window.ShopifyAnalytics?.meta?.product?.id) {
-        data.product_id = window.ShopifyAnalytics.meta.product.id;
-      }
-      
-      if (!data.variant_id && window.ShopifyAnalytics?.meta?.product?.variants?.[0]?.id) {
-        data.variant_id = window.ShopifyAnalytics.meta.product.variants[0].id;
-      }
-      
-      // Calculs
-      const quantity = parseInt(data.quantity) || 1;
-      const unitPrice = parseFloat(data.product_price) || 0;
-      const subtotal = quantity * unitPrice;
-      const deliveryFee = parseFloat(data.delivery_fee) || 3000; // 30 DH par défaut
-      const total = subtotal + deliveryFee;
-      
-      return {
-        ...data,
-        quantity: quantity.toString(),
-        subtotal,
-        delivery_fee: deliveryFee,
-        total,
-        source: 'cod-form-script',
-        timestamp: new Date().toISOString(),
-        shop_domain: this.getShopDomain(),
-        page_url: window.location.href
-      };
-    }
-
-    setLoading(isLoading) {
-      if (this.submitButton) {
-        this.submitButton.disabled = isLoading;
-        const originalText = this.submitButton.dataset.originalText || 
-                           this.submitButton.textContent || 
-                           this.submitButton.value;
-        
-        if (!this.submitButton.dataset.originalText) {
-          this.submitButton.dataset.originalText = originalText;
-        }
-        
-        if (this.submitButton.tagName === 'BUTTON') {
-          this.submitButton.innerHTML = isLoading ? 
-            '⏳ Traitement...' : 
-            '<span class="cod-btn-text">' + originalText + '</span>';
-        } else {
-          this.submitButton.value = isLoading ? '⏳ Traitement...' : originalText;
-        }
-      }
-    }
-
-    // 🎭 Succès de démo pour l'éditeur de thème
-    showDemoSuccess() {
-      if (this.responseDiv) {
-        this.responseDiv.innerHTML = `
-          <div style="background: #e0f2fe; color: #0277bd; padding: 15px; border: 1px solid #81d4fa; border-radius: 8px; margin: 20px 0; font-size: 16px; text-align: center;">
-            <div style="font-weight: bold; margin-bottom: 10px;">🎭 Aperçu du formulaire COD</div>
-            <div>Cette démo montre comment fonctionne le formulaire</div>
-            <div style="margin-top: 10px; font-size: 14px;">Le formulaire sera fonctionnel sur votre boutique en ligne</div>
-          </div>
-        `;
-        this.responseDiv.scrollIntoView({ behavior: 'smooth' });
-      }
-    }
-
-    showSuccess(result) {
-      if (this.responseDiv) {
-        this.responseDiv.innerHTML = `
-          <div style="background: #d4edda; color: #155724; padding: 15px; border: 1px solid #c3e6cb; border-radius: 8px; margin: 20px 0; font-size: 16px; text-align: center;">
-            <div style="font-weight: bold; margin-bottom: 10px;">✅ Commande confirmée avec succès!</div>
-            <div>📦 Numéro: <strong>#${result.orderNumber || result.order_number || result.order_id || 'COD-' + Date.now()}</strong></div>
-            <div style="margin-top: 10px; font-size: 14px;">Merci pour votre commande ! Vous serez contacté sous peu.</div>
-            <div style="margin-top: 15px;">
-              <div style="display: inline-block; width: 20px; height: 20px; border: 2px solid #155724; border-top: 2px solid transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-              <span style="margin-left: 10px;">Redirection vers la page de confirmation...</span>
-            </div>
-          </div>
-          <style>
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
+        try {
+            // Collecter les données du formulaire de manière sécurisée
+            const formData = this.collectFormData();
+            
+            // Valider les données
+            const validation = this.validateFormData(formData);
+            if (!validation.isValid) {
+                throw new Error(validation.message);
             }
-          </style>
-        `;
+
+            // Traiter la commande
+            await this.processOrder(formData);
+            
+        } catch (error) {
+            console.error('❌ Erreur lors de la soumission:', error);
+            this.handleError(error);
+        } finally {
+            this.isSubmitting = false;
+        }
+    }
+
+    collectFormData() {
+        const data = {};
         
-        this.responseDiv.scrollIntoView({ behavior: 'smooth' });
-      }
-
-      // Redirection automatique après succès
-      setTimeout(() => {
-        this.redirectToThankYouPage(result);
-      }, 2000);
-    }
-
-    redirectToThankYouPage(result) {
-      const orderId = result.order_id || result.shopifyOrderId || result.id;
-      const orderNumber = result.orderNumber || result.order_number;
-      
-      // Essayer la page de remerciement Shopify d'abord
-      if (orderId && orderId !== 'COD-' + Date.now()) {
-        const thankYouUrl = `/checkout/orders/${orderId}/thank_you`;
-        console.log('🔄 Redirecting to Shopify thank you page:', thankYouUrl);
-        window.location.href = thankYouUrl;
-        return;
-      }
-      
-      // Sinon, page de confirmation personnalisée
-      if (orderNumber) {
-        const confirmationUrl = `/pages/commande-confirmee?order=${orderNumber}`;
-        console.log('🔄 Redirecting to confirmation page:', confirmationUrl);
-        window.location.href = confirmationUrl;
-        return;
-      }
-      
-      // Fallback vers page générique
-      const fallbackUrl = '/pages/merci-commande';
-      console.log('🔄 Redirecting to fallback page:', fallbackUrl);
-      window.location.href = fallbackUrl;
-    }
-
-    showError(message) {
-      if (this.responseDiv) {
-        this.responseDiv.innerHTML = `
-          <div style="background: #f8d7da; color: #721c24; padding: 15px; border: 1px solid #f5c6cb; border-radius: 8px; margin: 20px 0; font-size: 16px;">
-            <div style="font-weight: bold; margin-bottom: 10px;">❌ Erreur de commande</div>
-            <div style="white-space: pre-line;">${message || 'Une erreur est survenue. Veuillez réessayer.'}</div>
-            <div style="margin-top: 10px; font-size: 14px;">Si le problème persiste, contactez-nous directement.</div>
-          </div>
-        `;
+        // 🔥 COLLECTE DE DONNÉES FLEXIBLE - Plusieurs noms de champs possibles
+        const fieldMappings = {
+            // Nom client
+            customer_name: ['customer_name', 'nom', 'name', 'full_name', 'client_name'],
+            
+            // Téléphone
+            customer_phone: ['customer_phone', 'telephone', 'phone', 'tel', 'mobile'],
+            
+            // Email
+            customer_email: ['customer_email', 'email', 'e_mail', 'mail'],
+            
+            // Adresse
+            delivery_address: ['delivery_address', 'adresse', 'address', 'shipping_address'],
+            
+            // Ville
+            delivery_city: ['delivery_city', 'ville', 'city', 'shipping_city'],
+            
+            // Code postal
+            delivery_postal_code: ['delivery_postal_code', 'code_postal', 'postal_code', 'zip'],
+            
+            // Commentaires
+            order_notes: ['order_notes', 'commentaire', 'notes', 'note', 'comments'],
+            
+            // Quantité
+            quantity: ['quantity', 'quantite', 'qty']
+        };
         
-        this.responseDiv.scrollIntoView({ behavior: 'smooth' });
-      }
+        // Collecter toutes les données possibles
+        Object.keys(fieldMappings).forEach(key => {
+            const possibleNames = fieldMappings[key];
+            let value = '';
+            
+            for (const fieldName of possibleNames) {
+                const element = this.form.querySelector(`[name="${fieldName}"]`) ||
+                               this.form.querySelector(`#${fieldName}`) ||
+                               this.form.querySelector(`.${fieldName}`);
+                
+                if (element) {
+                    value = safeGetValue(element);
+                    if (value) break; // Prendre la première valeur trouvée
+                }
+            }
+            
+            data[key] = value;
+        });
+
+        // Récupérer les informations du produit depuis les inputs cachés ou data attributes
+        data.product_id = this.getProductInfo('product_id') || this.getProductInfo('product-id');
+        data.variant_id = this.getProductInfo('variant_id') || this.getProductInfo('variant-id'); 
+        data.product_price = this.getProductInfo('product_price') || this.getProductInfo('price');
+        
+        // Quantité par défaut
+        data.quantity = data.quantity || '1';
+
+        console.log('📊 Données collectées:', data);
+        return data;
     }
-  }
 
-  // 🚀 Initialisation robuste
-  function initCODForm() {
-    console.log('🎯 Initialising COD Form...');
-    
-    if (typeof window.CODFormInstance === 'undefined') {
-      window.CODFormInstance = new CODForm();
+    getProductInfo(fieldName) {
+        // Chercher dans les inputs cachés
+        const input = this.form.querySelector(`input[name="${fieldName}"]`) ||
+                     this.form.querySelector(`input[data-${fieldName}]`);
+        
+        if (input) {
+            return safeGetValue(input);
+        }
+        
+        // Chercher dans les data attributes du formulaire
+        const dataValue = this.form.dataset[fieldName] || this.form.dataset[fieldName.replace('_', '')];
+        if (dataValue) {
+            return dataValue;
+        }
+        
+        // Chercher dans les variables globales
+        if (window.COD_PRODUCT_DATA && window.COD_PRODUCT_DATA[fieldName]) {
+            return window.COD_PRODUCT_DATA[fieldName];
+        }
+        
+        return '';
     }
-  }
 
-  // Points d'entrée multiples
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initCODForm);
-  } else {
-    initCODForm();
-  }
+    validateFormData(data) {
+        const errors = [];
+        
+        // Validation flexible - seulement les champs vraiment critiques
+        if (!data.customer_name && !data.customer_name) {
+            errors.push('Veuillez indiquer votre nom complet');
+        }
+        
+        if (!data.customer_phone) {
+            errors.push('Le numéro de téléphone est requis');
+        } else if (data.customer_phone.length < 8) {
+            errors.push('Le numéro de téléphone semble incomplet');
+        }
 
-  setTimeout(initCODForm, 1000);
+        if (!data.delivery_address) {
+            errors.push('L\'adresse de livraison est requise');
+        }
 
-  if (window.Shopify && window.Shopify.designMode) {
-    setTimeout(initCODForm, 2000);
-  }
+        if (!data.delivery_city) {
+            errors.push('La ville de livraison est requise');
+        }
 
-  // 🧪 Fonctions de debug
-  window.enableCODDebug = function() {
+        // Validation souple de l'email s'il est fourni
+        if (data.customer_email && data.customer_email.length > 0) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(data.customer_email)) {
+                errors.push('Format d\'email invalide');
+            }
+        }
+
+        return {
+            isValid: errors.length === 0,
+            message: errors.join(', '),
+            errors: errors
+        };
+    }
+
+    async processOrder(data) {
+        try {
+            // 🔥 PRÉPARER LES DONNÉES SELON VOTRE API
+            const orderData = {
+                // Format attendu par votre API /api/orders/create
+                order: {
+                    customer: {
+                        first_name: data.customer_name.split(' ')[0] || data.customer_name,
+                        last_name: data.customer_name.split(' ').slice(1).join(' ') || '',
+                        email: data.customer_email || `cod_${Date.now()}@temp.com`,
+                        phone: data.customer_phone
+                    },
+                    shipping_address: {
+                        address1: data.delivery_address,
+                        city: data.delivery_city,
+                        zip: data.delivery_postal_code,
+                        country: 'Morocco'
+                    },
+                    line_items: [
+                        {
+                            variant_id: parseInt(data.variant_id) || parseInt(data.product_id),
+                            quantity: parseInt(data.quantity) || 1,
+                            price: parseFloat(data.product_price) || 0
+                        }
+                    ],
+                    financial_status: 'pending',
+                    note: `Commande COD - ${data.order_notes || ''}`,
+                    tags: 'COD,cash-on-delivery'
+                }
+            };
+
+            console.log('🚀 Envoi de la commande:', orderData);
+
+            // Envoyer la commande
+            const response = await this.submitToAPI(orderData);
+            
+            if (response.success) {
+                this.handleSuccess(response);
+            } else {
+                throw new Error(response.message || 'Erreur lors de l\'envoi de la commande');
+            }
+            
+        } catch (error) {
+            console.error('❌ Erreur processOrder:', error);
+            throw error;
+        }
+    }
+
+    async submitToAPI(orderData) {
+        const response = await fetch(COD_CONFIG.apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Shopify-Shop-Domain': COD_CONFIG.shopDomain
+            },
+            body: JSON.stringify(orderData)
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.message || `Erreur ${response.status}`);
+        }
+        
+        return data;
+    }
+
+    handleSuccess(data) {
+        // Afficher un message de succès
+        this.showMessage('✅ Commande envoyée avec succès! Nous vous contacterons bientôt.', 'success');
+        
+        // Optionnel: redirection
+        if (data.order && data.order.order_status_url) {
+            setTimeout(() => {
+                window.location.href = data.order.order_status_url;
+            }, 2000);
+        } else {
+            // Redirection vers une page de succès
+            setTimeout(() => {
+                window.location.href = '/pages/merci-commande';
+            }, 3000);
+        }
+        
+        console.log('✅ Commande COD traitée avec succès');
+    }
+
+    handleError(error) {
+        let message = 'Une erreur est survenue. Veuillez réessayer.';
+        
+        if (error.message.includes('telephone') || error.message.includes('phone')) {
+            message = 'Veuillez vérifier votre numéro de téléphone.';
+        } else if (error.message.includes('nom') || error.message.includes('name')) {
+            message = 'Veuillez indiquer votre nom complet.';
+        } else if (error.message.includes('email')) {
+            message = 'Veuillez vérifier votre adresse email.';
+        } else if (error.message.includes('adresse') || error.message.includes('address')) {
+            message = 'Veuillez indiquer votre adresse complète.';
+        } else if (error.message) {
+            message = error.message;
+        }
+        
+        this.showMessage(`❌ ${message}`, 'error');
+        
+        // Retry logic
+        if (this.retryCount < 3) {
+            this.retryCount++;
+            console.log(`🔄 Tentative ${this.retryCount}/3`);
+        }
+    }
+
+    showMessage(message, type = 'info') {
+        // Créer ou mettre à jour le message
+        let messageEl = document.querySelector('.cod-message');
+        
+        if (!messageEl) {
+            messageEl = document.createElement('div');
+            messageEl.className = 'cod-message';
+            messageEl.style.cssText = `
+                padding: 15px 20px;
+                margin: 15px 0;
+                border-radius: 8px;
+                font-weight: 500;
+                position: relative;
+                z-index: 1000;
+                font-size: 16px;
+                line-height: 1.4;
+            `;
+            
+            if (this.form) {
+                this.form.parentNode.insertBefore(messageEl, this.form);
+            }
+        }
+        
+        // Styling selon le type
+        const styles = {
+            success: 'background: #d4edda; color: #155724; border: 2px solid #c3e6cb;',
+            error: 'background: #f8d7da; color: #721c24; border: 2px solid #f5c6cb;',
+            info: 'background: #d1ecf1; color: #0c5460; border: 2px solid #bee5eb;'
+        };
+        
+        messageEl.style.cssText += styles[type] || styles.info;
+        messageEl.textContent = message;
+        
+        // Scroll vers le message
+        messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Auto-hide après 8 secondes pour les succès
+        if (type === 'success') {
+            setTimeout(() => {
+                if (messageEl && messageEl.parentNode) {
+                    messageEl.style.opacity = '0';
+                    setTimeout(() => {
+                        if (messageEl && messageEl.parentNode) {
+                            messageEl.parentNode.removeChild(messageEl);
+                        }
+                    }, 300);
+                }
+            }, 8000);
+        }
+    }
+
+    initQuantityControls() {
+        const qtyInput = this.form.querySelector('input[name="quantity"], input[name="qty"]');
+        const plusBtn = this.form.querySelector('.qty-plus, .quantity-plus');
+        const minusBtn = this.form.querySelector('.qty-minus, .quantity-minus');
+
+        if (qtyInput) {
+            // Boutons +/-
+            if (plusBtn) {
+                plusBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const currentValue = parseInt(qtyInput.value) || 1;
+                    const maxValue = parseInt(qtyInput.getAttribute('max')) || 99;
+                    if (currentValue < maxValue) {
+                        qtyInput.value = currentValue + 1;
+                        this.updatePriceDisplay();
+                    }
+                });
+            }
+
+            if (minusBtn) {
+                minusBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const currentValue = parseInt(qtyInput.value) || 1;
+                    const minValue = parseInt(qtyInput.getAttribute('min')) || 1;
+                    if (currentValue > minValue) {
+                        qtyInput.value = currentValue - 1;
+                        this.updatePriceDisplay();
+                    }
+                });
+            }
+
+            // Changement direct
+            qtyInput.addEventListener('change', () => {
+                this.updatePriceDisplay();
+            });
+        }
+    }
+
+    updatePriceDisplay() {
+        // Mise à jour de l'affichage du prix (si applicable)
+        const qtyInput = this.form.querySelector('input[name="quantity"]');
+        const priceInput = this.form.querySelector('input[name="product_price"]');
+        const priceDisplay = document.querySelector('.cod-price-display, .price-display');
+
+        if (qtyInput && priceInput && priceDisplay) {
+            const quantity = parseInt(qtyInput.value) || 1;
+            const unitPrice = parseFloat(priceInput.value) || 0;
+            const total = quantity * unitPrice;
+
+            priceDisplay.textContent = `${total.toFixed(2)} DH`;
+        }
+    }
+}
+
+// Fonctions de debug globales
+window.enableCODDebug = function() {
+    COD_CONFIG.debug = true;
     localStorage.setItem('cod_debug', 'true');
-    console.log('🔧 Mode debug COD activé');
-    location.reload();
-  };
+    console.log('🐛 Debug COD activé');
+};
 
-  window.testCODConnection = async function() {
-    try {
-      const response = await fetch('/apps/cod-boost/test');
-      const data = await response.json();
-      console.log('✅ App Proxy accessible:', data);
-      return true;
-    } catch (error) {
-      console.error('❌ Erreur App Proxy:', error);
-      return false;
+window.testCODConnection = function() {
+    console.log('🧪 Test de connexion COD...');
+    fetch(COD_CONFIG.apiUrl.replace('/orders/create', '/test'))
+        .then(response => response.json())
+        .then(data => console.log('✅ Connexion OK:', data))
+        .catch(error => console.error('❌ Erreur connexion:', error));
+};
+
+window.getCODFormInfo = function() {
+    const form = document.querySelector('#cod-form, .cod-order-form');
+    if (form) {
+        const fields = form.querySelectorAll('input, select, textarea');
+        console.log('📋 Informations du formulaire COD:');
+        console.log('- Formulaire:', form);
+        console.log('- Nombre de champs:', fields.length);
+        fields.forEach((field, index) => {
+            console.log(`  ${index + 1}. ${field.name || field.id || 'sans nom'} (${field.type}) = "${safeGetValue(field)}"`);
+        });
+    } else {
+        console.log('❌ Aucun formulaire COD trouvé');
     }
-  };
+};
 
-})();
+// Initialisation automatique avec plusieurs points d'entrée
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(() => {
+        window.codForm = new CODForm();
+        console.log('✅ COD Form Script v3.0 chargé avec succès');
+        console.log('🔧 Fonctions debug disponibles: enableCODDebug(), testCODConnection(), getCODFormInfo()');
+    }, 500);
+});
+
+// Si le DOM est déjà chargé
+if (document.readyState === 'loading') {
+    // DOM pas encore chargé, attendre l'événement
+} else {
+    // DOM déjà chargé, initialiser maintenant
+    setTimeout(() => {
+        if (!window.codForm) {
+            window.codForm = new CODForm();
+            console.log('✅ COD Form Script v3.0 chargé avec succès');
+            console.log('🔧 Fonctions debug disponibles: enableCODDebug(), testCODConnection(), getCODFormInfo()');
+        }
+    }, 100);
+}
+
+// Initialisation pour l'éditeur Shopify
+if (window.Shopify && window.Shopify.designMode) {
+    setTimeout(() => {
+        if (!window.codForm) {
+            window.codForm = new CODForm();
+        }
+    }, 2000);
+}
