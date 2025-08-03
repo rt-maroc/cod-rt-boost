@@ -1,47 +1,29 @@
-// COD Form Script v3.0 - Version corrigée pour RT COD Boost
-console.log('🎯 Initialising COD Form v3.0...');
+// COD Form Script v4.0 - Version corrigée pour RT COD Boost
+console.log('🎯 Initialisation COD Form v4.0...');
 
-// Fonction utilitaire pour récupérer les valeurs en sécurité
-function safeGetValue(element) {
-    if (!element) return '';
-    if (typeof element === 'string') return element.trim();
-    return element.value ? element.value.trim() : '';
-}
-
-// Fonction utilitaire pour récupérer un élément par sélecteur
-function safeGetElement(selector) {
-    try {
-        return document.querySelector(selector);
-    } catch (e) {
-        console.warn(`⚠️ Élément non trouvé: ${selector}`);
-        return null;
-    }
-}
-
-// Configuration COD - MISE À JOUR pour votre serveur
+// Configuration COD
 const COD_CONFIG = {
-    // 🔥 API URL corrigée pour votre serveur
     apiUrl: window.location.hostname === 'localhost' 
-        ? 'http://localhost:3000/api/orders/create'
-        : 'https://rt-cod-boost.onrender.com/api/orders/create',
-    debug: window.COD_CONFIG?.debug || false,
-    shopDomain: 'rtmaroc.myshopify.com' // Votre shop domain
+        ? 'http://localhost:3000/api/cod-order'
+        : 'https://cod-rt-boost.onrender.com/api/cod-order',
+    debug: false
 };
 
-console.log('🎯 COD Config loaded:', COD_CONFIG);
+console.log('🎯 COD Config:', COD_CONFIG);
 
 class CODForm {
     constructor() {
         this.form = null;
         this.isSubmitting = false;
-        this.retryCount = 0;
-        this.maxRetries = 10;
         this.currentRetry = 0;
+        this.maxRetries = 5;
+        this.productId = null;
+        
         this.init();
     }
 
     init() {
-        // Chercher le formulaire COD avec plusieurs méthodes
+        // Chercher le formulaire COD
         this.form = this.findForm();
         
         if (!this.form) {
@@ -56,22 +38,26 @@ class CODForm {
         }
 
         console.log('✅ COD Form trouvé:', this.form.className || this.form.id);
-        this.setupEventListeners();
-        this.initQuantityControls();
-        console.log('✅ COD Form initialisé avec succès - v3.0');
+        
+        // Récupérer l'ID du produit
+        this.productId = this.getProductId();
+        
+        // Charger les champs dynamiques puis configurer le formulaire
+        this.loadDynamicFields().then(() => {
+            this.setupEventListeners();
+            this.initQuantityControls();
+            this.initVariantSelector();
+            console.log('✅ COD Form initialisé avec succès - v4.0');
+        });
     }
 
     findForm() {
         const selectors = [
             '#cod-form',
-            '#cod-order-form', 
             '.cod-order-form',
             '[data-cod-form]',
-            'form[action*="cod"]',
-            'form.cod-form',
-            '.rt_cod_boost_cod_order_form form',
-            'form:has(input[name="customer_name"])', // Formulaire avec champ nom client
-            'form:has(input[name="customer_phone"])'  // Formulaire avec champ téléphone
+            'form:has(input[name="customer_name"])',
+            '.cod-form-container form'
         ];
 
         for (let selector of selectors) {
@@ -82,7 +68,6 @@ class CODForm {
                     return form;
                 }
             } catch (e) {
-                // Certains sélecteurs avancés peuvent ne pas marcher sur tous les navigateurs
                 continue;
             }
         }
@@ -90,354 +75,150 @@ class CODForm {
         return null;
     }
 
+    getProductId() {
+        // Chercher l'ID produit dans le formulaire
+        const productInput = this.form?.querySelector('input[name="product_id"]');
+        if (productInput && productInput.value) {
+            return productInput.value;
+        }
+        
+        // Chercher dans l'URL ou variables globales
+        if (window.COD_PRODUCT_DATA?.id) {
+            return window.COD_PRODUCT_DATA.id;
+        }
+        
+        // Fallback générique
+        return 'generic';
+    }
+
+    async loadDynamicFields() {
+        try {
+            console.log('📋 Chargement des champs dynamiques...');
+            
+            const response = await fetch('/api/fields');
+            if (!response.ok) {
+                throw new Error('Erreur API fields');
+            }
+            
+            const fields = await response.json();
+            const activeFields = fields.filter(f => f.active);
+            
+            // Chercher le conteneur pour les champs dynamiques
+            const container = document.getElementById(`cod-dynamic-fields-${this.productId}`) ||
+                            this.form?.querySelector('.cod-dynamic-fields') ||
+                            this.form?.querySelector('.cod-fields-container');
+            
+            if (!container) {
+                console.warn('⚠️ Conteneur champs dynamiques introuvable, utilisation du formulaire directement');
+                this.addFieldsToForm(activeFields);
+                return;
+            }
+            
+            // Générer le HTML des champs
+            let html = '';
+            activeFields.forEach(field => {
+                html += this.generateFieldHTML(field);
+            });
+            
+            container.innerHTML = html;
+            console.log('✅ Champs dynamiques chargés:', activeFields.length);
+            
+        } catch (error) {
+            console.error('❌ Erreur chargement champs dynamiques:', error);
+            // Fallback avec champs de base
+            this.addDefaultFields();
+        }
+    }
+
+    generateFieldHTML(field) {
+        const isRequired = ['customer_name', 'customer_phone', 'customer_address', 'customer_city'].includes(field.key);
+        const requiredAttr = isRequired ? 'required' : '';
+        const requiredLabel = isRequired ? ' *' : '';
+        
+        let inputType = 'text';
+        let placeholder = field.label;
+        
+        // Types spécifiques selon le champ
+        switch (field.key) {
+            case 'customer_phone':
+            case 'phone':
+                inputType = 'tel';
+                placeholder = 'Ex: 0661234567';
+                break;
+            case 'customer_email':
+            case 'email':
+                inputType = 'email';
+                placeholder = 'Ex: nom@email.com';
+                break;
+        }
+        
+        return `
+            <div class="cod-field-group" style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 14px;">
+                    ${field.label}${requiredLabel}
+                </label>
+                <input 
+                    type="${inputType}" 
+                    name="${field.key}" 
+                    placeholder="${placeholder}"
+                    ${requiredAttr}
+                    style="width: 100%; padding: 10px; font-size: 14px; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box;"
+                />
+            </div>
+        `;
+    }
+
+    addFieldsToForm(fields) {
+        // Si pas de conteneur dédié, ajouter les champs au formulaire
+        const lastInput = this.form.querySelector('input[name="product_image"]') || 
+                          this.form.querySelector('input[type="hidden"]:last-of-type');
+        
+        if (lastInput) {
+            fields.forEach(field => {
+                const fieldHTML = this.generateFieldHTML(field);
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = fieldHTML;
+                lastInput.parentNode.insertBefore(tempDiv.firstElementChild, lastInput.nextSibling);
+            });
+        }
+    }
+
+    addDefaultFields() {
+        // Champs de base en fallback
+        const defaultFields = [
+            { key: 'customer_name', label: 'Nom complet', active: true },
+            { key: 'customer_phone', label: 'Téléphone', active: true },
+            { key: 'customer_email', label: 'Email', active: false },
+            { key: 'customer_address', label: 'Adresse', active: true },
+            { key: 'customer_city', label: 'Ville', active: true }
+        ];
+        
+        this.addFieldsToForm(defaultFields.filter(f => f.active));
+    }
+
     setupEventListeners() {
+        if (!this.form) return;
+        
         // Intercepter la soumission du formulaire
-        this.form.addEventListener('submit', (e) => this.handleSubmit(e), true);
+        this.form.addEventListener('submit', (e) => this.handleSubmit(e));
         
-        // Intercepter les clics sur les boutons
-        const buttons = this.form.querySelectorAll('button[type="submit"], input[type="submit"]');
-        buttons.forEach(button => {
-            button.addEventListener('click', (e) => this.handleButtonClick(e), true);
-        });
-    }
-
-    handleButtonClick(e) {
-        console.log('🔘 Button click intercepted');
-        
-        if (this.isSubmitting) {
-            e.preventDefault();
-            return false;
-        }
-        
-        // Empêcher le comportement par défaut et déclencher notre logique
-        e.preventDefault();
-        setTimeout(() => {
-            this.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-        }, 100);
-    }
-
-    async handleSubmit(e) {
-        console.log('📝 Form submission intercepted');
-        e.preventDefault();
-        e.stopPropagation();
-        
-        if (this.isSubmitting) {
-            return false;
-        }
-
-        this.isSubmitting = true;
-        
-        try {
-            // Collecter les données du formulaire de manière sécurisée
-            const formData = this.collectFormData();
-            
-            // Valider les données
-            const validation = this.validateFormData(formData);
-            if (!validation.isValid) {
-                throw new Error(validation.message);
-            }
-
-            // Traiter la commande
-            await this.processOrder(formData);
-            
-        } catch (error) {
-            console.error('❌ Erreur lors de la soumission:', error);
-            this.handleError(error);
-        } finally {
-            this.isSubmitting = false;
-        }
-    }
-
-    collectFormData() {
-        const data = {};
-        
-        // 🔥 COLLECTE DE DONNÉES FLEXIBLE - Plusieurs noms de champs possibles
-        const fieldMappings = {
-            // Nom client
-            customer_name: ['customer_name', 'nom', 'name', 'full_name', 'client_name'],
-            
-            // Téléphone
-            customer_phone: ['customer_phone', 'telephone', 'phone', 'tel', 'mobile'],
-            
-            // Email
-            customer_email: ['customer_email', 'email', 'e_mail', 'mail'],
-            
-            // Adresse
-            delivery_address: ['delivery_address', 'adresse', 'address', 'shipping_address'],
-            
-            // Ville
-            delivery_city: ['delivery_city', 'ville', 'city', 'shipping_city'],
-            
-            // Code postal
-            delivery_postal_code: ['delivery_postal_code', 'code_postal', 'postal_code', 'zip'],
-            
-            // Commentaires
-            order_notes: ['order_notes', 'commentaire', 'notes', 'note', 'comments'],
-            
-            // Quantité
-            quantity: ['quantity', 'quantite', 'qty']
-        };
-        
-        // Collecter toutes les données possibles
-        Object.keys(fieldMappings).forEach(key => {
-            const possibleNames = fieldMappings[key];
-            let value = '';
-            
-            for (const fieldName of possibleNames) {
-                const element = this.form.querySelector(`[name="${fieldName}"]`) ||
-                               this.form.querySelector(`#${fieldName}`) ||
-                               this.form.querySelector(`.${fieldName}`);
-                
-                if (element) {
-                    value = safeGetValue(element);
-                    if (value) break; // Prendre la première valeur trouvée
+        // Intercepter les clics sur les boutons submit
+        const submitButtons = this.form.querySelectorAll('button[type="submit"], input[type="submit"]');
+        submitButtons.forEach(button => {
+            button.addEventListener('click', (e) => {
+                if (this.isSubmitting) {
+                    e.preventDefault();
                 }
-            }
-            
-            data[key] = value;
+            });
         });
-
-        // Récupérer les informations du produit depuis les inputs cachés ou data attributes
-        data.product_id = this.getProductInfo('product_id') || this.getProductInfo('product-id');
-        data.variant_id = this.getProductInfo('variant_id') || this.getProductInfo('variant-id'); 
-        data.product_price = this.getProductInfo('product_price') || this.getProductInfo('price');
-        
-        // Quantité par défaut
-        data.quantity = data.quantity || '1';
-
-        console.log('📊 Données collectées:', data);
-        return data;
-    }
-
-    getProductInfo(fieldName) {
-        // Chercher dans les inputs cachés
-        const input = this.form.querySelector(`input[name="${fieldName}"]`) ||
-                     this.form.querySelector(`input[data-${fieldName}]`);
-        
-        if (input) {
-            return safeGetValue(input);
-        }
-        
-        // Chercher dans les data attributes du formulaire
-        const dataValue = this.form.dataset[fieldName] || this.form.dataset[fieldName.replace('_', '')];
-        if (dataValue) {
-            return dataValue;
-        }
-        
-        // Chercher dans les variables globales
-        if (window.COD_PRODUCT_DATA && window.COD_PRODUCT_DATA[fieldName]) {
-            return window.COD_PRODUCT_DATA[fieldName];
-        }
-        
-        return '';
-    }
-
-    validateFormData(data) {
-        const errors = [];
-        
-        // Validation flexible - seulement les champs vraiment critiques
-        if (!data.customer_name && !data.customer_name) {
-            errors.push('Veuillez indiquer votre nom complet');
-        }
-        
-        if (!data.customer_phone) {
-            errors.push('Le numéro de téléphone est requis');
-        } else if (data.customer_phone.length < 8) {
-            errors.push('Le numéro de téléphone semble incomplet');
-        }
-
-        if (!data.delivery_address) {
-            errors.push('L\'adresse de livraison est requise');
-        }
-
-        if (!data.delivery_city) {
-            errors.push('La ville de livraison est requise');
-        }
-
-        // Validation souple de l'email s'il est fourni
-        if (data.customer_email && data.customer_email.length > 0) {
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(data.customer_email)) {
-                errors.push('Format d\'email invalide');
-            }
-        }
-
-        return {
-            isValid: errors.length === 0,
-            message: errors.join(', '),
-            errors: errors
-        };
-    }
-
-    async processOrder(data) {
-        try {
-            // 🔥 PRÉPARER LES DONNÉES SELON VOTRE API
-            const orderData = {
-                // Format attendu par votre API /api/orders/create
-                order: {
-                    customer: {
-                        first_name: data.customer_name.split(' ')[0] || data.customer_name,
-                        last_name: data.customer_name.split(' ').slice(1).join(' ') || '',
-                        email: data.customer_email || `cod_${Date.now()}@temp.com`,
-                        phone: data.customer_phone
-                    },
-                    shipping_address: {
-                        address1: data.delivery_address,
-                        city: data.delivery_city,
-                        zip: data.delivery_postal_code,
-                        country: 'Morocco'
-                    },
-                    line_items: [
-                        {
-                            variant_id: parseInt(data.variant_id) || parseInt(data.product_id),
-                            quantity: parseInt(data.quantity) || 1,
-                            price: parseFloat(data.product_price) || 0
-                        }
-                    ],
-                    financial_status: 'pending',
-                    note: `Commande COD - ${data.order_notes || ''}`,
-                    tags: 'COD,cash-on-delivery'
-                }
-            };
-
-            console.log('🚀 Envoi de la commande:', orderData);
-
-            // Envoyer la commande
-            const response = await this.submitToAPI(orderData);
-            
-            if (response.success) {
-                this.handleSuccess(response);
-            } else {
-                throw new Error(response.message || 'Erreur lors de l\'envoi de la commande');
-            }
-            
-        } catch (error) {
-            console.error('❌ Erreur processOrder:', error);
-            throw error;
-        }
-    }
-
-    async submitToAPI(orderData) {
-        const response = await fetch(COD_CONFIG.apiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-Shopify-Shop-Domain': COD_CONFIG.shopDomain
-            },
-            body: JSON.stringify(orderData)
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(data.message || `Erreur ${response.status}`);
-        }
-        
-        return data;
-    }
-
-    handleSuccess(data) {
-        // Afficher un message de succès
-        this.showMessage('✅ Commande envoyée avec succès! Nous vous contacterons bientôt.', 'success');
-        
-        // Optionnel: redirection
-        if (data.order && data.order.order_status_url) {
-            setTimeout(() => {
-                window.location.href = data.order.order_status_url;
-            }, 2000);
-        } else {
-            // Redirection vers une page de succès
-            setTimeout(() => {
-                window.location.href = '/pages/merci-commande';
-            }, 3000);
-        }
-        
-        console.log('✅ Commande COD traitée avec succès');
-    }
-
-    handleError(error) {
-        let message = 'Une erreur est survenue. Veuillez réessayer.';
-        
-        if (error.message.includes('telephone') || error.message.includes('phone')) {
-            message = 'Veuillez vérifier votre numéro de téléphone.';
-        } else if (error.message.includes('nom') || error.message.includes('name')) {
-            message = 'Veuillez indiquer votre nom complet.';
-        } else if (error.message.includes('email')) {
-            message = 'Veuillez vérifier votre adresse email.';
-        } else if (error.message.includes('adresse') || error.message.includes('address')) {
-            message = 'Veuillez indiquer votre adresse complète.';
-        } else if (error.message) {
-            message = error.message;
-        }
-        
-        this.showMessage(`❌ ${message}`, 'error');
-        
-        // Retry logic
-        if (this.retryCount < 3) {
-            this.retryCount++;
-            console.log(`🔄 Tentative ${this.retryCount}/3`);
-        }
-    }
-
-    showMessage(message, type = 'info') {
-        // Créer ou mettre à jour le message
-        let messageEl = document.querySelector('.cod-message');
-        
-        if (!messageEl) {
-            messageEl = document.createElement('div');
-            messageEl.className = 'cod-message';
-            messageEl.style.cssText = `
-                padding: 15px 20px;
-                margin: 15px 0;
-                border-radius: 8px;
-                font-weight: 500;
-                position: relative;
-                z-index: 1000;
-                font-size: 16px;
-                line-height: 1.4;
-            `;
-            
-            if (this.form) {
-                this.form.parentNode.insertBefore(messageEl, this.form);
-            }
-        }
-        
-        // Styling selon le type
-        const styles = {
-            success: 'background: #d4edda; color: #155724; border: 2px solid #c3e6cb;',
-            error: 'background: #f8d7da; color: #721c24; border: 2px solid #f5c6cb;',
-            info: 'background: #d1ecf1; color: #0c5460; border: 2px solid #bee5eb;'
-        };
-        
-        messageEl.style.cssText += styles[type] || styles.info;
-        messageEl.textContent = message;
-        
-        // Scroll vers le message
-        messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        
-        // Auto-hide après 8 secondes pour les succès
-        if (type === 'success') {
-            setTimeout(() => {
-                if (messageEl && messageEl.parentNode) {
-                    messageEl.style.opacity = '0';
-                    setTimeout(() => {
-                        if (messageEl && messageEl.parentNode) {
-                            messageEl.parentNode.removeChild(messageEl);
-                        }
-                    }, 300);
-                }
-            }, 8000);
-        }
     }
 
     initQuantityControls() {
-        const qtyInput = this.form.querySelector('input[name="quantity"], input[name="qty"]');
-        const plusBtn = this.form.querySelector('.qty-plus, .quantity-plus');
-        const minusBtn = this.form.querySelector('.qty-minus, .quantity-minus');
+        const qtyInput = this.form?.querySelector('input[name="quantity"]');
+        const plusBtn = this.form?.querySelector('.cod-qty-plus, .qty-plus');
+        const minusBtn = this.form?.querySelector('.cod-qty-minus, .qty-minus');
 
         if (qtyInput) {
-            // Boutons +/-
             if (plusBtn) {
                 plusBtn.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -454,95 +235,290 @@ class CODForm {
                 minusBtn.addEventListener('click', (e) => {
                     e.preventDefault();
                     const currentValue = parseInt(qtyInput.value) || 1;
-                    const minValue = parseInt(qtyInput.getAttribute('min')) || 1;
-                    if (currentValue > minValue) {
+                    if (currentValue > 1) {
                         qtyInput.value = currentValue - 1;
                         this.updatePriceDisplay();
                     }
                 });
             }
 
-            // Changement direct
-            qtyInput.addEventListener('change', () => {
-                this.updatePriceDisplay();
+            qtyInput.addEventListener('change', () => this.updatePriceDisplay());
+        }
+    }
+
+    initVariantSelector() {
+        const variantSelect = this.form?.querySelector('select[name="variant_id"]');
+        if (variantSelect) {
+            variantSelect.addEventListener('change', (e) => {
+                const selectedOption = e.target.selectedOptions[0];
+                const price = selectedOption.dataset.price;
+                
+                // Mettre à jour le prix caché
+                const priceInput = this.form.querySelector('input[name="product_price"]');
+                if (priceInput && price) {
+                    priceInput.value = price;
+                    this.updatePriceDisplay();
+                }
             });
         }
     }
 
     updatePriceDisplay() {
-        // Mise à jour de l'affichage du prix (si applicable)
-        const qtyInput = this.form.querySelector('input[name="quantity"]');
-        const priceInput = this.form.querySelector('input[name="product_price"]');
-        const priceDisplay = document.querySelector('.cod-price-display, .price-display');
+        const qtyInput = this.form?.querySelector('input[name="quantity"]');
+        const priceInput = this.form?.querySelector('input[name="product_price"]');
+        const priceDisplay = document.querySelector('#cod-display-price') || 
+                           document.querySelector('.cod-price-display');
 
         if (qtyInput && priceInput && priceDisplay) {
             const quantity = parseInt(qtyInput.value) || 1;
             const unitPrice = parseFloat(priceInput.value) || 0;
             const total = quantity * unitPrice;
+            
+            // Format prix Shopify (centimes vers dirhams)
+            const formattedPrice = unitPrice > 1000 ? (total / 100).toFixed(2) : total.toFixed(2);
+            priceDisplay.textContent = `${formattedPrice} DH`;
+        }
+    }
 
-            priceDisplay.textContent = `${total.toFixed(2)} DH`;
+    async handleSubmit(e) {
+        e.preventDefault();
+        
+        if (this.isSubmitting) return;
+        this.isSubmitting = true;
+
+        try {
+            // Collecter les données
+            const formData = this.collectFormData();
+            
+            // Valider
+            const validation = this.validateFormData(formData);
+            if (!validation.isValid) {
+                throw new Error(validation.message);
+            }
+
+            // Afficher loading
+            this.showLoading(true);
+
+            // Envoyer la commande
+            const response = await this.submitOrder(formData);
+            
+            if (response.success) {
+                this.handleSuccess(response);
+            } else {
+                throw new Error(response.error || 'Erreur lors de la création de la commande');
+            }
+            
+        } catch (error) {
+            console.error('❌ Erreur soumission:', error);
+            this.handleError(error);
+        } finally {
+            this.isSubmitting = false;
+            this.showLoading(false);
+        }
+    }
+
+    collectFormData() {
+        const data = {};
+        
+        // Collecter tous les champs du formulaire
+        const formData = new FormData(this.form);
+        for (const [key, value] of formData.entries()) {
+            data[key] = value.trim();
+        }
+        
+        // Assurer la quantité par défaut
+        if (!data.quantity) {
+            data.quantity = '1';
+        }
+        
+        console.log('📊 Données collectées:', data);
+        return data;
+    }
+
+    validateFormData(data) {
+        const errors = [];
+        
+        // Validation des champs requis
+        if (!data.customer_name) {
+            errors.push('Le nom complet est requis');
+        }
+        
+        if (!data.customer_phone) {
+            errors.push('Le numéro de téléphone est requis');
+        } else if (data.customer_phone.length < 8) {
+            errors.push('Le numéro de téléphone semble incomplet');
+        }
+
+        if (!data.customer_address) {
+            errors.push('L\'adresse est requise');
+        }
+
+        if (!data.customer_city) {
+            errors.push('La ville est requise');
+        }
+
+        // Email optionnel mais validé si fourni
+        if (data.customer_email && data.customer_email.length > 0) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(data.customer_email)) {
+                errors.push('Format d\'email invalide');
+            }
+        }
+
+        return {
+            isValid: errors.length === 0,
+            message: errors.join(', '),
+            errors: errors
+        };
+    }
+
+    async submitOrder(data) {
+        console.log('🚀 Envoi commande vers:', COD_CONFIG.apiUrl);
+        
+        const response = await fetch(COD_CONFIG.apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(result.error || `Erreur ${response.status}`);
+        }
+        
+        return result;
+    }
+
+    showLoading(show) {
+        const submitBtn = this.form?.querySelector('button[type="submit"]');
+        const btnText = submitBtn?.querySelector('.cod-btn-text');
+        const btnLoading = submitBtn?.querySelector('.cod-btn-loading');
+        
+        if (submitBtn) {
+            submitBtn.disabled = show;
+            
+            if (btnText && btnLoading) {
+                btnText.style.display = show ? 'none' : 'inline';
+                btnLoading.style.display = show ? 'inline' : 'none';
+            } else {
+                submitBtn.textContent = show ? '⏳ Traitement...' : '🚚 Confirmer ma commande';
+            }
+        }
+    }
+
+    handleSuccess(response) {
+        console.log('✅ Commande créée avec succès:', response);
+        
+        this.showMessage('✅ Commande créée avec succès ! Nous vous contacterons bientôt.', 'success');
+        
+        // Réinitialiser le formulaire
+        this.form?.reset();
+        
+        // Redirection optionnelle
+        setTimeout(() => {
+            if (response.order_status_url) {
+                window.location.href = response.order_status_url;
+            }
+        }, 3000);
+    }
+
+    handleError(error) {
+        let message = 'Une erreur est survenue. Veuillez réessayer.';
+        
+        if (error.message.includes('téléphone') || error.message.includes('phone')) {
+            message = 'Veuillez vérifier votre numéro de téléphone.';
+        } else if (error.message.includes('nom') || error.message.includes('name')) {
+            message = 'Veuillez indiquer votre nom complet.';
+        } else if (error.message) {
+            message = error.message;
+        }
+        
+        this.showMessage(`❌ ${message}`, 'error');
+    }
+
+    showMessage(message, type = 'info') {
+        // Chercher ou créer le conteneur de message
+        let messageEl = this.form?.parentNode?.querySelector('.cod-message') ||
+                       document.querySelector('.cod-message');
+        
+        if (!messageEl) {
+            messageEl = document.createElement('div');
+            messageEl.className = 'cod-message';
+            messageEl.style.cssText = `
+                padding: 15px 20px;
+                margin: 15px 0;
+                border-radius: 8px;
+                font-weight: 500;
+                font-size: 16px;
+                line-height: 1.4;
+            `;
+            
+            if (this.form?.parentNode) {
+                this.form.parentNode.insertBefore(messageEl, this.form);
+            }
+        }
+        
+        // Styles selon le type
+        const styles = {
+            success: 'background: #d4edda; color: #155724; border: 2px solid #c3e6cb;',
+            error: 'background: #f8d7da; color: #721c24; border: 2px solid #f5c6cb;',
+            info: 'background: #d1ecf1; color: #0c5460; border: 2px solid #bee5eb;'
+        };
+        
+        messageEl.style.cssText += styles[type] || styles.info;
+        messageEl.textContent = message;
+        
+        // Scroll vers le message
+        messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Auto-hide pour les succès
+        if (type === 'success') {
+            setTimeout(() => {
+                if (messageEl?.parentNode) {
+                    messageEl.style.opacity = '0';
+                    setTimeout(() => messageEl.remove(), 300);
+                }
+            }, 5000);
         }
     }
 }
 
-// Fonctions de debug globales
+// Fonctions utilitaires globales
 window.enableCODDebug = function() {
     COD_CONFIG.debug = true;
-    localStorage.setItem('cod_debug', 'true');
     console.log('🐛 Debug COD activé');
 };
 
 window.testCODConnection = function() {
     console.log('🧪 Test de connexion COD...');
-    fetch(COD_CONFIG.apiUrl.replace('/orders/create', '/test'))
+    fetch(COD_CONFIG.apiUrl.replace('/api/cod-order', '/health'))
         .then(response => response.json())
         .then(data => console.log('✅ Connexion OK:', data))
         .catch(error => console.error('❌ Erreur connexion:', error));
 };
 
-window.getCODFormInfo = function() {
-    const form = document.querySelector('#cod-form, .cod-order-form');
-    if (form) {
-        const fields = form.querySelectorAll('input, select, textarea');
-        console.log('📋 Informations du formulaire COD:');
-        console.log('- Formulaire:', form);
-        console.log('- Nombre de champs:', fields.length);
-        fields.forEach((field, index) => {
-            console.log(`  ${index + 1}. ${field.name || field.id || 'sans nom'} (${field.type}) = "${safeGetValue(field)}"`);
-        });
-    } else {
-        console.log('❌ Aucun formulaire COD trouvé');
-    }
-};
-
-// Initialisation automatique avec plusieurs points d'entrée
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(() => {
+// Initialisation automatique
+function initCODForm() {
+    if (!window.codForm) {
         window.codForm = new CODForm();
-        console.log('✅ COD Form Script v3.0 chargé avec succès');
-        console.log('🔧 Fonctions debug disponibles: enableCODDebug(), testCODConnection(), getCODFormInfo()');
-    }, 500);
-});
-
-// Si le DOM est déjà chargé
-if (document.readyState === 'loading') {
-    // DOM pas encore chargé, attendre l'événement
-} else {
-    // DOM déjà chargé, initialiser maintenant
-    setTimeout(() => {
-        if (!window.codForm) {
-            window.codForm = new CODForm();
-            console.log('✅ COD Form Script v3.0 chargé avec succès');
-            console.log('🔧 Fonctions debug disponibles: enableCODDebug(), testCODConnection(), getCODFormInfo()');
-        }
-    }, 100);
+        console.log('✅ COD Form Script v4.0 chargé avec succès');
+    }
 }
 
-// Initialisation pour l'éditeur Shopify
-if (window.Shopify && window.Shopify.designMode) {
-    setTimeout(() => {
-        if (!window.codForm) {
-            window.codForm = new CODForm();
-        }
-    }, 2000);
+// Points d'entrée multiples
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(initCODForm, 100);
+    });
+} else {
+    setTimeout(initCODForm, 100);
+}
+
+// Pour l'éditeur Shopify
+if (window.Shopify?.designMode) {
+    setTimeout(initCODForm, 1000);
 }

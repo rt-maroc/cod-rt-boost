@@ -1,0 +1,253 @@
+﻿{% comment %} RT COD Boost - Dynamic Product Form {% endcomment %}
+
+<div class="rt-cod-form" id="rt-cod-form-{{ product.id }}" style="
+  background: #f8f9fa;
+  border: 2px solid #007bff;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+">
+  <div id="cod-loading-{{ product.id }}" style="text-align: center; padding: 20px;">
+    Loading COD form configuration...
+  </div>
+  
+  <div id="cod-form-container-{{ product.id }}" style="display: none;">
+    <!-- Form will be dynamically generated here -->
+  </div>
+</div>
+
+<script>
+(function() {
+  const productId = '{{ product.id }}';
+  const shopDomain = '{{ shop.domain }}';
+  
+  // Product data
+  const productData = {
+    id: '{{ product.id }}',
+    title: '{{ product.title | escape }}',
+    price: '{{ product.price | money_without_currency }}',
+    currency: '{{ shop.currency }}',
+    image: '{{ product.featured_image.url | img_url: "master" }}',
+    url: '{{ product.url | prepend: shop.url }}'
+  };
+
+  // Load form configuration from admin
+  async function loadFormConfig() {
+    try {
+      const response = await fetch('https://cod-rt-boost.onrender.com/api/form-config/' + shopDomain);
+      const config = await response.json();
+      return config;
+    } catch (error) {
+      console.error('Error loading form config:', error);
+      return getDefaultConfig();
+    }
+  }
+
+  function getDefaultConfig() {
+    return {
+      enabledFields: {
+        name: true,
+        phone: true,
+        address: true,
+        city: true
+      },
+      formTitle: 'Cash on Delivery Order',
+      buttonText: 'Order Now',
+      successMessage: 'Order sent successfully!',
+      errorMessage: 'Error sending order'
+    };
+  }
+
+  function createFormField(fieldType, config) {
+    const fieldConfig = {
+      name: {
+        type: 'text',
+        placeholder: 'Full Name *',
+        required: true,
+        id: 'cod-name-' + productId
+      },
+      phone: {
+        type: 'tel',
+        placeholder: 'Phone Number *',
+        required: true,
+        id: 'cod-phone-' + productId
+      },
+      address: {
+        type: 'textarea',
+        placeholder: 'Delivery Address *',
+        required: true,
+        id: 'cod-address-' + productId
+      },
+      city: {
+        type: 'text',
+        placeholder: 'City *',
+        required: true,
+        id: 'cod-city-' + productId
+      },
+      postal_code: {
+        type: 'text',
+        placeholder: 'Postal Code',
+        required: false,
+        id: 'cod-postal-' + productId
+      },
+      company: {
+        type: 'text',
+        placeholder: 'Company (Optional)',
+        required: false,
+        id: 'cod-company-' + productId
+      },
+      apartment: {
+        type: 'text',
+        placeholder: 'Apartment/Suite',
+        required: false,
+        id: 'cod-apartment-' + productId
+      }
+    };
+
+    const field = fieldConfig[fieldType];
+    if (!field) return '';
+
+    const baseStyle = 
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 16px;
+      margin-bottom: 12px;
+      width: 100%;
+      box-sizing: border-box;
+    ;
+
+    if (field.type === 'textarea') {
+      return <textarea 
+        id="" 
+        placeholder="" 
+        
+        rows="3"
+        style=" resize: vertical;"
+      ></textarea>;
+    } else {
+      return <input 
+        type="" 
+        id="" 
+        placeholder="" 
+        
+        style=""
+      >;
+    }
+  }
+
+  function generateForm(config) {
+    let formHTML = 
+      <h3 style="color: #007bff; margin: 0 0 15px 0; font-size: 18px; font-weight: bold;">
+        🛒 
+      </h3>
+      
+      <form id="cod-form-" style="display: flex; flex-direction: column;">
+    ;
+
+    // Add enabled fields
+    Object.keys(config.enabledFields).forEach(fieldType => {
+      if (config.enabledFields[fieldType]) {
+        formHTML += createFormField(fieldType, config);
+      }
+    });
+
+    formHTML += 
+        <button 
+          type="submit"
+          style="
+            background: #007bff;
+            color: white;
+            padding: 15px;
+            border: none;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+          "
+          onmouseover="this.style.background='#0056b3'"
+          onmouseout="this.style.background='#007bff'"
+        >
+          🛒  ( )
+        </button>
+      </form>
+      
+      <div id="cod-success-" style="display: none; color: #28a745; font-weight: bold; margin-top: 15px;">
+        ✅ 
+      </div>
+      
+      <div id="cod-error-" style="display: none; color: #dc3545; font-weight: bold; margin-top: 15px;">
+        ❌ 
+      </div>
+    ;
+
+    return formHTML;
+  }
+
+  function attachFormHandler(config) {
+    const form = document.getElementById('cod-form-' + productId);
+    if (!form) return;
+
+    form.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const formData = {
+        product: productData,
+        shop_domain: shopDomain
+      };
+
+      // Collect form data based on enabled fields
+      Object.keys(config.enabledFields).forEach(fieldType => {
+        if (config.enabledFields[fieldType]) {
+          const field = document.getElementById('cod-' + fieldType + '-' + productId);
+          if (field) {
+            formData[fieldType] = field.value;
+          }
+        }
+      });
+
+      try {
+        const response = await fetch('https://cod-rt-boost.onrender.com/api/cod-order', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(formData)
+        });
+
+        if (response.ok) {
+          document.getElementById('cod-success-' + productId).style.display = 'block';
+          document.getElementById('cod-error-' + productId).style.display = 'none';
+          form.reset();
+        } else {
+          throw new Error('Server error');
+        }
+      } catch (error) {
+        document.getElementById('cod-error-' + productId).style.display = 'block';
+        document.getElementById('cod-success-' + productId).style.display = 'none';
+      }
+    });
+  }
+
+  // Initialize form
+  async function initCODForm() {
+    const config = await loadFormConfig();
+    const formHTML = generateForm(config);
+    
+    document.getElementById('cod-loading-' + productId).style.display = 'none';
+    document.getElementById('cod-form-container-' + productId).innerHTML = formHTML;
+    document.getElementById('cod-form-container-' + productId).style.display = 'block';
+    
+    attachFormHandler(config);
+  }
+
+  // Start when page loads
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initCODForm);
+  } else {
+    initCODForm();
+  }
+})();
+</script>

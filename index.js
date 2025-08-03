@@ -28,12 +28,50 @@ app.use((req, res, next) => {
     next();
 });
 
-// Créer le dossier data s'il n'existe pas (pour Render)
+// Créer le dossier data s'il n'existe pas
 if (!fs.existsSync('./data')) {
     fs.mkdirSync('./data', { recursive: true });
 }
 
-// Database setup - Utilise ./data/ pour la persistance sur Render
+// ===============================
+// ✅ API pour gérer fields.json
+// ===============================
+const fieldsFile = path.join(__dirname, "data/fields.json");
+
+// Créer le fichier fields.json s'il n'existe pas
+if (!fs.existsSync(fieldsFile)) {
+    fs.writeFileSync(fieldsFile, JSON.stringify([
+        { "key": "customer_name", "label": "Nom complet", "active": true },
+        { "key": "customer_phone", "label": "Téléphone", "active": true },
+        { "key": "customer_email", "label": "Email", "active": false },
+        { "key": "customer_address", "label": "Adresse", "active": true },
+        { "key": "customer_city", "label": "Ville", "active": true }
+    ], null, 2));
+}
+
+// GET - Lire les champs
+app.get("/api/fields", (req, res) => {
+    try {
+        const data = JSON.parse(fs.readFileSync(fieldsFile, "utf8"));
+        res.json(data);
+    } catch (error) {
+        console.error("Erreur lecture fields.json :", error);
+        res.json([]);
+    }
+});
+
+// POST - Sauvegarder les champs
+app.post("/api/fields", (req, res) => {
+    try {
+        fs.writeFileSync(fieldsFile, JSON.stringify(req.body, null, 2));
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Erreur écriture fields.json :", error);
+        res.status(500).json({ success: false });
+    }
+});
+
+// Database setup
 const db = new sqlite3.Database('./data/database.sqlite', (err) => {
     if (err) {
         console.error('❌ Erreur de connexion à la base de données:', err.message);
@@ -129,13 +167,12 @@ async function createShopifyOrder(orderData) {
             line_items: [{
                 title: orderData.product_title,
                 price: orderData.product_price,
-                quantity: 1
+                quantity: parseInt(orderData.quantity) || 1
             }],
             customer: {
                 first_name: orderData.customer_name.split(' ')[0] || orderData.customer_name,
                 last_name: orderData.customer_name.split(' ').slice(1).join(' ') || '',
                 email: orderData.customer_email || `${Date.now()}@example.com`
-                // phone supprimé - optionnel pour compatibilité universelle
             },
             billing_address: {
                 first_name: orderData.customer_name.split(' ')[0] || orderData.customer_name,
@@ -143,7 +180,6 @@ async function createShopifyOrder(orderData) {
                 address1: orderData.customer_address,
                 city: orderData.customer_city,
                 country: 'Morocco'
-                // phone supprimé - optionnel
             },
             shipping_address: {
                 first_name: orderData.customer_name.split(' ')[0] || orderData.customer_name,
@@ -151,7 +187,6 @@ async function createShopifyOrder(orderData) {
                 address1: orderData.customer_address,
                 city: orderData.customer_city,
                 country: 'Morocco'
-                // phone supprimé - optionnel
             },
             financial_status: 'pending',
             fulfillment_status: null,
@@ -236,16 +271,12 @@ app.get('/test-cod-form', (req, res) => {
                 .result { margin-top: 20px; padding: 15px; border-radius: 5px; display: none; }
                 .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
                 .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-                @media (max-width: 768px) {
-                    body { margin: 10px; }
-                    .container { padding: 20px; }
-                }
             </style>
         </head>
         <body>
             <div class="container">
                 <h1>🧪 Test Formulaire COD</h1>
-                <form id="codForm">
+                <form id="codForm" class="cod-order-form">
                     <div class="form-group">
                         <label for="customer_name">Nom complet *</label>
                         <input type="text" id="customer_name" name="customer_name" required>
@@ -290,69 +321,13 @@ app.get('/test-cod-form', (req, res) => {
                 </form>
                 
                 <div id="result" class="result"></div>
-                
-                <div style="text-align: center; margin-top: 20px;">
-                    <a href="/" style="color: #007bff; text-decoration: none;">← Retour à l'accueil</a>
-                </div>
             </div>
-            
-            <script>
-                document.getElementById('codForm').addEventListener('submit', async function(e) {
-                    e.preventDefault();
-                    
-                    const formData = new FormData(this);
-                    const data = Object.fromEntries(formData);
-                    
-                    const resultDiv = document.getElementById('result');
-                    const submitBtn = document.querySelector('button[type="submit"]');
-                    
-                    // Désactiver le bouton pendant le traitement
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = '⏳ Création en cours...';
-                    
-                    resultDiv.style.display = 'block';
-                    resultDiv.innerHTML = '⏳ Création de la commande en cours...';
-                    resultDiv.className = 'result';
-                    
-                    try {
-                        const response = await fetch('/api/cod-order', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify(data)
-                        });
-                        
-                        const result = await response.json();
-                        
-                        if (response.ok) {
-                            resultDiv.className = 'result success';
-                            resultDiv.innerHTML = '✅ Commande créée avec succès !<br><strong>ID Local:</strong> ' + result.localOrderId + '<br><strong>ID Shopify:</strong> ' + (result.shopifyOrderId || 'Non créé');
-                            
-                            // Réinitialiser le formulaire
-                            document.getElementById('codForm').reset();
-                            document.getElementById('product_title').value = 'Produit Test RT';
-                            document.getElementById('product_price').value = '299.99';
-                        } else {
-                            resultDiv.className = 'result error';
-                            resultDiv.innerHTML = '❌ Erreur: ' + result.error;
-                        }
-                    } catch (error) {
-                        resultDiv.className = 'result error';
-                        resultDiv.innerHTML = '❌ Erreur de connexion: ' + error.message;
-                    } finally {
-                        // Réactiver le bouton
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = '📦 Créer la commande COD';
-                    }
-                });
-            </script>
         </body>
         </html>
     `);
 });
 
-// API endpoint to create COD order
+// API endpoint to create COD order - CORRIGÉ
 app.post('/api/cod-order', async (req, res) => {
     console.log('📥 Nouvelle commande COD reçue:', req.body);
     
@@ -364,12 +339,14 @@ app.post('/api/cod-order', async (req, res) => {
         customer_city,
         product_title,
         product_price,
-        order_notes
+        order_notes,
+        quantity
     } = req.body;
 
     // Validation
     if (!customer_name || !customer_phone || !customer_address || !customer_city || !product_title || !product_price) {
         return res.status(400).json({
+            success: false,
             error: 'Champs obligatoires manquants',
             required: ['customer_name', 'customer_phone', 'customer_address', 'customer_city', 'product_title', 'product_price']
         });
@@ -396,7 +373,10 @@ app.post('/api/cod-order', async (req, res) => {
         // Try to create order in Shopify
         if (SHOPIFY_CONFIG.accessToken) {
             try {
-                const shopifyOrder = await createShopifyOrder(req.body);
+                const shopifyOrder = await createShopifyOrder({
+                    ...req.body,
+                    quantity: quantity || '1'
+                });
                 shopifyOrderId = shopifyOrder.id;
 
                 // Update local record with Shopify ID
@@ -424,6 +404,7 @@ app.post('/api/cod-order', async (req, res) => {
     } catch (error) {
         console.error('❌ Erreur création commande:', error.message);
         res.status(500).json({
+            success: false,
             error: 'Erreur serveur lors de la création de la commande',
             details: error.message
         });
@@ -471,11 +452,6 @@ app.get('/orders', (req, res) => {
                     .status.sync_failed { background: #f8d7da; color: #721c24; }
                     a { display: inline-block; margin: 10px; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; }
                     a:hover { background: #0056b3; }
-                    @media (max-width: 768px) {
-                        .container { padding: 20px; }
-                        table { font-size: 14px; }
-                        th, td { padding: 8px; }
-                    }
                 </style>
             </head>
             <body>
@@ -532,7 +508,6 @@ app.get('/health', (req, res) => {
 async function startServer() {
     console.log('🚀 RT COD Boost server starting...');
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`📊 Database: SQLite with data persistence`);
     
     // Test Shopify connection
     if (SHOPIFY_CONFIG.accessToken) {

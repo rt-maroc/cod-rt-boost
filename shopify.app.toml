@@ -1,24 +1,23 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
-
-client_id = "192e9c0790df6f5d66e8d1f56eb91cf8"
 name = "RT COD BOOST"
-handle = "rt-cod-boost-1"
-application_url = "https://rt-cod-boost.onrender.com"
+client_id = "2bdd3ddbfa8761a72630a5989fe9cb29"
+application_url = "https://cod-rt-boost.onrender.com"
 embedded = true
+
+[auth]
+redirect_urls = [
+  "https://cod-rt-boost.onrender.com/auth/callback",
+  "https://cod-rt-boost.onrender.com/api/auth/callback"
+]
 
 [build]
 automatically_update_urls_on_dev = true
 dev_store_url = "rt-solutions-test.myshopify.com"
 
-[webhooks]
-api_version = "2025-07"
-
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_customers,read_orders,read_products,write_draft_orders,write_orders,write_products"
+scopes = "read_orders,write_orders,read_products,write_products"
 
-[auth]
-redirect_urls = ["https://rt-cod-boost.onrender.com/auth/callback", "https://rt-cod-boost.onrender.com/auth/shopify/callback", "https://rt-cod-boost.onrender.com/api/auth/callback"]
+[webhooks]
+api_version = "2025-01"
 
 [pos]
 embedded = false

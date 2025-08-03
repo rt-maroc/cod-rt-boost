@@ -1,0 +1,27 @@
+[
+  {
+    "key": "first_name",
+    "label": "Prénom",
+    "active": true
+  },
+  {
+    "key": "last_name",
+    "label": "Nom",
+    "active": false
+  },
+  {
+    "key": "phone",
+    "label": "Téléphone",
+    "active": true
+  },
+  {
+    "key": "city",
+    "label": "Ville",
+    "active": true
+  },
+  {
+    "key": "address",
+    "label": "Adresse",
+    "active": false
+  }
+]
