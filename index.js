@@ -50,14 +50,172 @@ if (!fs.existsSync(fieldsFile)) {
 }
 
 // GET - Lire les champs
-app.get("/api/fields", (req, res) => {
-    try {
-        const data = JSON.parse(fs.readFileSync(fieldsFile, "utf8"));
-        res.json(data);
-    } catch (error) {
-        console.error("Erreur lecture fields.json :", error);
-        res.json([]);
-    }
+// Dans votre index.js, remplacez la route app.get('/test-cod-form') par :
+
+app.get('/test-cod-form', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Test Formulaire COD - RT COD Boost</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+                .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                h1 { color: #333; text-align: center; }
+                .form-group { margin: 15px 0; }
+                label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+                input, textarea, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; box-sizing: border-box; }
+                button { width: 100%; padding: 15px; background: #28a745; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; margin-top: 20px; }
+                button:hover { background: #218838; }
+                button:disabled { background: #6c757d; cursor: not-allowed; }
+                .result { margin-top: 20px; padding: 15px; border-radius: 5px; display: none; }
+                .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+                .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🧪 Test Formulaire COD</h1>
+                <form id="codForm" class="cod-order-form">
+                    <div class="form-group">
+                        <label for="customer_name">Nom complet *</label>
+                        <input type="text" id="customer_name" name="customer_name" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="customer_phone">Téléphone *</label>
+                        <input type="tel" id="customer_phone" name="customer_phone" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="customer_email">Email</label>
+                        <input type="email" id="customer_email" name="customer_email">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="customer_address">Adresse *</label>
+                        <input type="text" id="customer_address" name="customer_address" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="customer_city">Ville *</label>
+                        <input type="text" id="customer_city" name="customer_city" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="product_title">Produit *</label>
+                        <input type="text" id="product_title" name="product_title" value="Produit Test RT" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="product_price">Prix (MAD) *</label>
+                        <input type="number" id="product_price" name="product_price" step="0.01" value="299.99" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="order_notes">Notes (optionnel)</label>
+                        <textarea id="order_notes" name="order_notes" rows="2"></textarea>
+                    </div>
+                    
+                    <button type="submit" id="submitBtn">📦 Créer la commande COD</button>
+                </form>
+                
+                <div id="result" class="result"></div>
+            </div>
+
+            <script>
+            // COD Form JavaScript intégré
+            console.log('🎯 COD Form JavaScript chargé');
+            
+            document.addEventListener('DOMContentLoaded', function() {
+                const form = document.getElementById('codForm');
+                const submitBtn = document.getElementById('submitBtn');
+                const resultDiv = document.getElementById('result');
+                
+                if (!form) {
+                    console.error('❌ Formulaire COD introuvable');
+                    return;
+                }
+                
+                console.log('✅ Formulaire COD trouvé, ajout event listener');
+                
+                form.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    console.log('📝 Soumission interceptée');
+                    
+                    // Collecter les données
+                    const formData = new FormData(form);
+                    const data = Object.fromEntries(formData.entries());
+                    
+                    console.log('📊 Données collectées:', data);
+                    
+                    // Validation basique
+                    if (!data.customer_name || !data.customer_phone || !data.customer_address || !data.customer_city) {
+                        showMessage('❌ Veuillez remplir tous les champs obligatoires', 'error');
+                        return;
+                    }
+                    
+                    // Afficher loading
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = '⏳ Création en cours...';
+                    resultDiv.style.display = 'block';
+                    resultDiv.innerHTML = '⏳ Création de la commande en cours...';
+                    resultDiv.className = 'result';
+                    
+                    try {
+                        console.log('🚀 Envoi vers /api/cod-order');
+                        
+                        const response = await fetch('/api/cod-order', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(data)
+                        });
+                        
+                        console.log('📡 Réponse reçue:', response.status);
+                        
+                        const result = await response.json();
+                        console.log('📥 Données réponse:', result);
+                        
+                        if (response.ok && result.success) {
+                            showMessage('✅ Commande créée avec succès !\\nID Local: ' + result.localOrderId + '\\nID Shopify: ' + (result.shopifyOrderId || 'Non créé'), 'success');
+                            
+                            // Réinitialiser le formulaire
+                            form.reset();
+                            document.getElementById('product_title').value = 'Produit Test RT';
+                            document.getElementById('product_price').value = '299.99';
+                        } else {
+                            throw new Error(result.error || 'Erreur inconnue');
+                        }
+                        
+                    } catch (error) {
+                        console.error('❌ Erreur:', error);
+                        showMessage('❌ Erreur: ' + error.message, 'error');
+                    } finally {
+                        // Réactiver le bouton
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = '📦 Créer la commande COD';
+                    }
+                });
+                
+                function showMessage(message, type) {
+                    resultDiv.style.display = 'block';
+                    resultDiv.className = 'result ' + type;
+                    resultDiv.innerHTML = message.replace(/\\n/g, '<br>');
+                    
+                    // Scroll vers le message
+                    resultDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+                
+                console.log('✅ Event listener ajouté avec succès');
+            });
+            </script>
+        </body>
+        </html>
+    `);
 });
 
 // POST - Sauvegarder les champs
